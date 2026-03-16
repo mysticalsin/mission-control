@@ -9,6 +9,7 @@ import {
   getHabits, createHabit, toggleHabitToday, deleteHabit,
   getNotes, createNote, updateNote, deleteNote,
   getDigests, createDigest,
+  getHealthMetrics, createHealthMetric, deleteHealthMetric,
 } from './db'
 
 // ── Zod Schemas ─────────────────────────────────────────────────────────
@@ -41,11 +42,24 @@ const generateDigestSchema = z.object({
   digest_type: z.enum(['morning', 'evening']).default('morning'),
 })
 
+const createHealthMetricSchema = z.object({
+  action: z.literal('create_health_metric'),
+  metric_type: z.enum([
+    'weight', 'blood_pressure_systolic', 'blood_pressure_diastolic',
+    'heart_rate', 'steps', 'sleep_hours', 'calories', 'mood',
+  ]),
+  value: z.number(),
+  unit: z.string().max(20).default(''),
+  notes: z.string().max(2000).optional(),
+  recorded_at: z.string().max(30).optional(),
+})
+
 const postSchema = z.discriminatedUnion('action', [
   createReminderSchema,
   createHabitSchema,
   createNoteSchema,
   generateDigestSchema,
+  createHealthMetricSchema,
 ])
 
 const patchSchema = z.object({
@@ -59,7 +73,7 @@ const patchSchema = z.object({
 })
 
 const deleteSchema = z.object({
-  entity: z.enum(['reminder', 'habit', 'note']),
+  entity: z.enum(['reminder', 'habit', 'note', 'health_metric']),
   id: z.number().int().positive(),
 })
 
@@ -99,6 +113,10 @@ function handleGetTab(tab: string, params: URLSearchParams): NextResponse {
     }
     case 'notes':
       return NextResponse.json({ notes: getNotes() })
+    case 'health': {
+      const metricType = params.get('metric_type') ?? undefined
+      return NextResponse.json({ metrics: getHealthMetrics(metricType) })
+    }
     default:
       return NextResponse.json({ error: 'Invalid tab parameter' }, { status: 400 })
   }
@@ -151,6 +169,16 @@ function dispatchPost(data: z.infer<typeof postSchema>): NextResponse {
       // Generate a placeholder digest with current date context
       const digest = createDigest(data.digest_type, buildDigestContent(data.digest_type))
       return NextResponse.json({ digest }, { status: 201 })
+    }
+    case 'create_health_metric': {
+      const metric = createHealthMetric({
+        metric_type: data.metric_type,
+        value: data.value,
+        unit: data.unit,
+        notes: data.notes,
+        recorded_at: data.recorded_at,
+      })
+      return NextResponse.json({ metric }, { status: 201 })
     }
   }
 }
@@ -232,11 +260,13 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 }
 
 function dispatchDelete(data: z.infer<typeof deleteSchema>): NextResponse {
-  const deleteFn = data.entity === 'reminder'
-    ? deleteReminder
-    : data.entity === 'habit'
-      ? deleteHabit
-      : deleteNote
+  const deleteMap: Record<string, (id: number) => boolean> = {
+    reminder: deleteReminder,
+    habit: deleteHabit,
+    note: deleteNote,
+    health_metric: deleteHealthMetric,
+  }
+  const deleteFn = deleteMap[data.entity]
 
   const deleted = deleteFn(data.id)
   if (!deleted) {

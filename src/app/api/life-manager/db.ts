@@ -56,6 +56,16 @@ export function ensureTables(): void {
       content_json TEXT NOT NULL DEFAULT '{}',
       generated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS life_health_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      metric_type TEXT NOT NULL,
+      value REAL NOT NULL,
+      unit TEXT NOT NULL DEFAULT '',
+      notes TEXT DEFAULT '',
+      recorded_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
 
   tablesEnsured = true
@@ -330,4 +340,59 @@ export function createDigest(digestType: string, content: object): DigestRow {
     `SELECT id, digest_type, content_json, generated_at
      FROM life_digests WHERE id = ?`,
   ).get(result.lastInsertRowid) as DigestRow
+}
+
+// ── Health Metric Queries ────────────────────────────────────────────────
+
+interface HealthMetricRow {
+  readonly id: number; readonly metric_type: string; readonly value: number
+  readonly unit: string; readonly notes: string
+  readonly recorded_at: string; readonly created_at: string
+}
+
+export function getHealthMetrics(metricType?: string): HealthMetricRow[] {
+  const db = getDatabase()
+  ensureTables()
+
+  if (metricType) {
+    return db.prepare(
+      `SELECT id, metric_type, value, unit, notes, recorded_at, created_at
+       FROM life_health_metrics
+       WHERE metric_type = ?
+       ORDER BY recorded_at DESC LIMIT 200`,
+    ).all(metricType) as HealthMetricRow[]
+  }
+
+  return db.prepare(
+    `SELECT id, metric_type, value, unit, notes, recorded_at, created_at
+     FROM life_health_metrics
+     ORDER BY recorded_at DESC LIMIT 200`,
+  ).all() as HealthMetricRow[]
+}
+
+export function createHealthMetric(data: {
+  readonly metric_type: string
+  readonly value: number
+  readonly unit: string
+  readonly notes?: string
+  readonly recorded_at?: string
+}): HealthMetricRow {
+  const db = getDatabase()
+  ensureTables()
+
+  const result = db.prepare(
+    `INSERT INTO life_health_metrics (metric_type, value, unit, notes, recorded_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+  ).run(data.metric_type, data.value, data.unit, data.notes ?? '', data.recorded_at ?? null)
+
+  return db.prepare(
+    `SELECT id, metric_type, value, unit, notes, recorded_at, created_at
+     FROM life_health_metrics WHERE id = ?`,
+  ).get(result.lastInsertRowid) as HealthMetricRow
+}
+
+export function deleteHealthMetric(id: number): boolean {
+  const db = getDatabase()
+  ensureTables()
+  return db.prepare('DELETE FROM life_health_metrics WHERE id = ?').run(id).changes > 0
 }

@@ -66,6 +66,19 @@ function ensureTables(): void {
     );
   `)
 
+  // Phase 1 enrichment: AI lead qualification columns
+  const cols = db.prepare("PRAGMA table_info(marketing_leads)").all() as Array<{ name: string }>
+  const colNames = new Set(cols.map(c => c.name))
+  if (!colNames.has('vibe_score')) {
+    db.exec(`ALTER TABLE marketing_leads ADD COLUMN vibe_score INTEGER DEFAULT NULL`)
+  }
+  if (!colNames.has('qualification_reasoning')) {
+    db.exec(`ALTER TABLE marketing_leads ADD COLUMN qualification_reasoning TEXT DEFAULT ''`)
+  }
+  if (!colNames.has('ai_qualified')) {
+    db.exec(`ALTER TABLE marketing_leads ADD COLUMN ai_qualified INTEGER DEFAULT 0`)
+  }
+
   tablesEnsured = true
 }
 
@@ -99,10 +112,18 @@ const createPresentationSchema = z.object({
   slide_count: z.number().int().min(1).max(100).optional(),
 })
 
+const qualifyLeadSchema = z.object({
+  action: z.literal('qualify_lead'),
+  id: z.number().int().positive(),
+  vibe_score: z.number().int().min(0).max(100),
+  reasoning: z.string().max(2000),
+})
+
 const postBodySchema = z.discriminatedUnion('action', [
   createLeadSchema,
   createCampaignSchema,
   createPresentationSchema,
+  qualifyLeadSchema,
 ])
 
 const patchLeadSchema = z.object({
@@ -293,6 +314,13 @@ function dispatchPostAction(data: PostAction): NextResponse {
         'INSERT INTO marketing_presentations (title, topic, slide_count, status, created_at) VALUES (?, ?, ?, ?, ?)',
       ).run(data.title, data.topic, data.slide_count ?? 10, 'generating', now)
       return NextResponse.json({ id: result.lastInsertRowid }, { status: 201 })
+    }
+    case 'qualify_lead': {
+      // AI lead qualification — sets vibe score and reasoning
+      db.prepare(
+        'UPDATE marketing_leads SET vibe_score = ?, qualification_reasoning = ?, ai_qualified = 1, status = ?, updated_at = ? WHERE id = ?',
+      ).run(data.vibe_score, data.reasoning, data.vibe_score >= 70 ? 'qualified' : 'contacted', now, data.id)
+      return NextResponse.json({ ok: true, qualified: data.vibe_score >= 70 })
     }
   }
 }

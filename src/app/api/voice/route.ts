@@ -48,7 +48,18 @@ const logVoiceSchema = z.object({
   duration_ms: z.number().int().min(0).optional().default(0),
 })
 
-const postBodySchema = z.discriminatedUnion('action', [logVoiceSchema])
+const updateSettingSchema = z.object({
+  action: z.literal('update_setting'),
+  key: z.enum(['tts_provider', 'tts_voice', 'tts_speed', 'tts_pitch', 'stt_provider', 'stt_language']),
+  value: z.string().min(1).max(500),
+})
+
+const postBodySchema = z.discriminatedUnion('action', [logVoiceSchema, updateSettingSchema])
+
+const patchSettingSchema = z.object({
+  key: z.string().min(1).max(100),
+  value: z.string().min(1).max(500),
+})
 
 // ---------------------------------------------------------------------------
 // Row types (readonly — no mutation)
@@ -102,6 +113,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ settings: rows })
     }
 
+    // Static provider catalog — no DB call needed
+    if (tab === 'providers') {
+      const providers = [
+        { id: 'browser', name: 'Browser TTS', description: 'Built-in browser speech synthesis', requiresKey: false },
+        { id: 'elevenlabs', name: 'ElevenLabs', description: 'High-quality AI voice synthesis', requiresKey: true },
+        { id: 'edge-tts', name: 'Edge TTS', description: 'Microsoft Edge text-to-speech', requiresKey: false },
+      ] as const
+      return NextResponse.json({ providers })
+    }
+
     return NextResponse.json({ error: 'Invalid tab parameter' }, { status: 400 })
   } catch (error) {
     logger.error({ err: error }, 'Voice GET failed')
@@ -128,19 +149,71 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     ensureTables()
     const db = getDatabase()
-    const { transcript, response, duration_ms } = validated.data
+    const body = validated.data
 
-    const result = db.prepare(
-      'INSERT INTO voice_log (transcript, response, duration_ms) VALUES (?, ?, ?)',
-    ).run(transcript, response, duration_ms)
+    if (body.action === 'log_voice') {
+      const result = db.prepare(
+        'INSERT INTO voice_log (transcript, response, duration_ms) VALUES (?, ?, ?)',
+      ).run(body.transcript, body.response, body.duration_ms)
 
-    const row = db.prepare(
-      'SELECT id, transcript, response, duration_ms, created_at FROM voice_log WHERE id = ?',
-    ).get(result.lastInsertRowid) as VoiceLogRow
+      const row = db.prepare(
+        'SELECT id, transcript, response, duration_ms, created_at FROM voice_log WHERE id = ?',
+      ).get(result.lastInsertRowid) as VoiceLogRow
 
-    return NextResponse.json({ entry: row }, { status: 201 })
+      return NextResponse.json({ entry: row }, { status: 201 })
+    }
+
+    if (body.action === 'update_setting') {
+      return upsertSetting(db, body.key, body.value)
+    }
+
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   } catch (error) {
     logger.error({ err: error }, 'Voice POST failed')
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared upsert — used by both POST update_setting and PATCH
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upsertSetting(db: any, key: string, value: string): NextResponse {
+  db.prepare(
+    `INSERT INTO voice_settings (key, value, updated_at) VALUES (?, ?, unixepoch())
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(key, value)
+
+  const row = db.prepare(
+    'SELECT key, value, updated_at FROM voice_settings WHERE key = ?',
+  ).get(key) as VoiceSettingRow
+
+  return NextResponse.json({ setting: row })
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/voice — update a single voice setting
+// ---------------------------------------------------------------------------
+
+export async function PATCH(request: NextRequest): Promise<NextResponse> {
+  const rateLimited = mutationLimiter(request)
+  if (rateLimited) return rateLimited
+
+  const auth = requireRole(request, 'operator')
+  if ('error' in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
+  const validated = await validateBody(request, patchSettingSchema)
+  if ('error' in validated) return validated.error
+
+  try {
+    ensureTables()
+    const db = getDatabase()
+    return upsertSetting(db, validated.data.key, validated.data.value)
+  } catch (error) {
+    logger.error({ err: error }, 'Voice PATCH failed')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
