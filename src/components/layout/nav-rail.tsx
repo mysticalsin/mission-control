@@ -41,7 +41,13 @@ const navGroups: NavGroup[] = [
       { id: 'life-manager', label: 'Life Manager', icon: <LifeManagerIcon />, priority: false, essential: true },
       { id: 'meetings', label: 'Meetings', icon: <MeetingsIcon />, priority: false, essential: true },
       { id: 'trading', label: 'Trading', icon: <TradingIcon />, priority: false, essential: true },
+      { id: 'outreach', label: 'Outreach', icon: <OutreachIcon />, priority: false, essential: true },
       { id: 'marketplace', label: 'Marketplace', icon: <MarketplaceIcon />, priority: false, essential: true },
+      { id: 'health', label: 'Health', icon: <HealthIcon />, priority: false, essential: true },
+      { id: 'gsd', label: 'GSD', icon: <GsdIcon />, priority: false, essential: true },
+      { id: 'communications', label: 'Comms Hub', icon: <CommsHubIcon />, priority: false, essential: true },
+      { id: 'healer', label: 'Healer', icon: <HealerIcon />, priority: false, essential: true },
+      { id: 'sales-assistant', label: 'Sales AI', icon: <SalesAiIcon />, priority: false, essential: true },
     ],
   },
   {
@@ -1497,12 +1503,65 @@ function TradingIcon() {
   )
 }
 
+function OutreachIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 3H2a1 1 0 00-1 1v7a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1z" />
+      <path d="M1 4l7 5 7-5" />
+    </svg>
+  )
+}
+
 function MarketplaceIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M1 6l1.5-4h11L15 6" />
       <path d="M1 6h14v8a1 1 0 01-1 1H2a1 1 0 01-1-1V6z" />
       <path d="M6 10h4v5H6z" />
+    </svg>
+  )
+}
+
+function HealthIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 14S1.5 9.5 1.5 5.5a3.5 3.5 0 017 0 3.5 3.5 0 017 0C15.5 9.5 8 14 8 14z" />
+    </svg>
+  )
+}
+
+function GsdIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 3h12M2 8h12M2 13h8" />
+      <path d="M13 11l2 2-2 2" />
+    </svg>
+  )
+}
+
+function CommsHubIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 3h10v7H4l-3 3V3z" />
+      <path d="M11 6h4v7l-3-3h-1" />
+    </svg>
+  )
+}
+
+function HealerIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M8 5v6M5 8h6" />
+    </svg>
+  )
+}
+
+function SalesAiIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 1v4M8 11v4M1 8h4M11 8h4" />
+      <circle cx="8" cy="8" r="2" />
     </svg>
   )
 }

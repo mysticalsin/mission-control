@@ -39,10 +39,16 @@ import { ChatPagePanel } from '@/components/panels/chat-page-panel'
 import { MarketingPanel } from '@/components/panels/marketing-panel'
 import { AnalyticsPanel } from '@/components/panels/analytics-panel'
 import { TradingPanel } from '@/components/panels/trading-panel'
+import { OutreachPanel } from '@/components/panels/outreach-panel'
 import { VoicePanel } from '@/components/panels/voice-panel'
 import { LifeManagerPanel } from '@/components/panels/life-manager-panel'
 import { MeetingsPanel } from '@/components/panels/meetings-panel'
 import { MarketplacePanel } from '@/components/panels/marketplace-panel'
+import { HealthPanel } from '@/components/panels/health-panel'
+import { GsdPanel } from '@/components/panels/gsd-panel'
+import { CommunicationsPanel } from '@/components/panels/communications-panel'
+import { HealerPanel } from '@/components/panels/healer-panel'
+import { SalesAssistantPanel } from '@/components/panels/sales-assistant-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { getPluginPanel } from '@/lib/plugins'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -564,6 +570,8 @@ function ContentRouter({ tab }: { tab: string }) {
       return <AnalyticsPanel />
     case 'trading':
       return <TradingPanel />
+    case 'outreach':
+      return <OutreachPanel />
     case 'voice':
       return <VoicePanel />
     case 'life-manager':
@@ -572,6 +580,16 @@ function ContentRouter({ tab }: { tab: string }) {
       return <MeetingsPanel />
     case 'marketplace':
       return <MarketplacePanel />
+    case 'health':
+      return <HealthPanel />
+    case 'gsd':
+      return <GsdPanel />
+    case 'communications':
+      return <CommunicationsPanel />
+    case 'healer':
+      return <HealerPanel />
+    case 'sales-assistant':
+      return <SalesAssistantPanel />
     default: {
       return renderPluginPanel(tab)
     }
