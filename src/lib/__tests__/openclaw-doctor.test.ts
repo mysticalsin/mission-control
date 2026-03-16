@@ -119,4 +119,88 @@ Run "openclaw doctor --fix" to apply changes.
     expect(result.category).toBe('general')
     expect(result.canFix).toBe(false)
   })
+
+  it('filters informational lines, fix suggestions, and gateway status from issues', () => {
+    const result = parseOpenClawDoctorOutput(`
+┌  OpenClaw doctor
+│
+◇  Security ─────────────────────────────────╮
+│                                            │
+│  - No channel security warnings detected.  │
+│  - Run: openclaw security audit --deep     │
+│                                            │
+├────────────────────────────────────────────╯
+│
+◇  Skills status ────────────╮
+│                            │
+│  Eligible: 32              │
+│  Missing requirements: 19  │
+│  Blocked by allowlist: 0   │
+│                            │
+├────────────────────────────╯
+│
+◇  Plugins ──────╮
+│                │
+│  Loaded: 6     │
+│  Disabled: 31  │
+│  Errors: 0     │
+│                │
+├────────────────╯
+│
+◇  Gateway ──────────────╮
+│                        │
+│  Gateway not running.  │
+│                        │
+├────────────────────────╯
+│
+◇  Memory search ──────────────────────────────────────────────────────────╮
+│                                                                          │
+│  Memory search is enabled but no embedding provider is configured.       │
+│                                                                          │
+│  Fix (pick one):                                                         │
+│  - Set OPENAI_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, or                │
+│    MISTRAL_API_KEY in your environment                                   │
+│  - Configure credentials: openclaw configure --section model             │
+│  - For local embeddings: configure                                       │
+│    agents.defaults.memorySearch.provider and local model path            │
+│  - To disable: openclaw config set agents.defaults.memorySearch.enabled  │
+│    false                                                                 │
+│                                                                          │
+│  Verify: openclaw memory status --deep                                   │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────╯
+│
+◇  Gateway ────────────────────────╮
+│                                  │
+│  Gateway service not installed.  │
+│                                  │
+├──────────────────────────────────╯
+Run "openclaw doctor --fix" to apply changes.
+│
+└  Doctor complete.
+`, 0)
+
+    // All bullet lines are informational — no real issues
+    expect(result.issues).toEqual([])
+    expect(result.healthy).toBe(true)
+    expect(result.level).toBe('healthy')
+  })
+
+  it('keeps real issues while filtering informational lines', () => {
+    const result = parseOpenClawDoctorOutput(`
+◇  Config warnings
+│  - tools.exec.safeBins includes interpreter/runtime 'bun' without profile
+│  - No channel security warnings detected.
+│  - Run: openclaw security audit --deep
+│  - Gateway not running.
+Run "openclaw doctor --fix" to apply changes.
+└  Doctor complete.
+`, 0)
+
+    expect(result.issues).toEqual([
+      "tools.exec.safeBins includes interpreter/runtime 'bun' without profile",
+    ])
+    expect(result.healthy).toBe(false)
+    expect(result.level).toBe('warning')
+  })
 })

@@ -32,6 +32,34 @@ function isStateDirectoryListLine(line: string): boolean {
   return /^(?:\$OPENCLAW_HOME(?:\/\.openclaw)?|~\/\.openclaw|\/\S+)$/.test(line)
 }
 
+// <!-- ADR: Filter non-actionable lines from issue extraction |
+//   Context: openclaw doctor outputs informational status, fix suggestions, and
+//     positive confirmations as bullet points — the parser was counting them as issues |
+//   Decision: Classify these as informational so the banner only shows real problems |
+//   Trade-offs: May over-filter if openclaw changes its output format, but reduces
+//     false-positive warnings significantly -->
+function isInformationalLine(line: string): boolean {
+  // Positive confirmations — no action needed
+  if (/^no\s+.+\s+(detected|found|warnings?|issues?|errors?)/i.test(line)) return true
+
+  // Command/fix suggestions — not issues themselves
+  if (/^(run:|verify:|configure\s+|to disable:)/i.test(line)) return true
+
+  // Environment variable setup hints
+  if (/^set\s+[A-Z_]+/i.test(line)) return true
+
+  // Gateway status lines — informational, not fixable by doctor
+  if (/^gateway\s+(not running|service not installed|target:)/i.test(line)) return true
+
+  // "For local embeddings" / "For X:" suggestion lines
+  if (/^for\s+\w+.*:/i.test(line)) return true
+
+  // Config credential suggestions
+  if (/^configure\s+credentials:/i.test(line)) return true
+
+  return false
+}
+
 function normalizeFsPath(candidate: string): string {
   return path.resolve(candidate.trim())
 }
@@ -130,13 +158,25 @@ export function parseOpenClawDoctorOutput(
   const issues = lines
     .filter(line => /^[-*]\s+/.test(line))
     .map(line => line.replace(/^[-*]\s+/, '').trim())
-    .filter(line => !isSessionAgingLine(line) && !isStateDirectoryListLine(line))
+    .filter(line =>
+      !isSessionAgingLine(line) &&
+      !isStateDirectoryListLine(line) &&
+      !isInformationalLine(line)
+    )
 
-  const mentionsWarnings = /\bwarning|warnings|problem|problems|invalid config|fix\b/i.test(raw)
-  const mentionsHealthy = /\bok\b|\bhealthy\b|\bno issues\b|\bvalid\b/i.test(raw)
+  // <!-- ADR: Test warning keywords against filtered issues, not raw output |
+  //   Context: Raw output contains "No channel security warnings detected" which
+  //     falsely matched "warnings", and "Run openclaw doctor --fix" matched "fix" |
+  //   Decision: Use issues text (post-filtering) for warning detection |
+  //   Trade-offs: Slightly less sensitive, but eliminates false positives from
+  //     positive confirmations and fix suggestions in raw output -->
+  const issuesText = issues.join('\n')
+  const mentionsWarnings = /\bwarning|warnings|problem|problems|invalid config\b/i.test(issuesText)
+  const mentionsHealthy = /\bok\b|\bhealthy\b|\bno issues\b|\bvalid\b|\bdoctor complete\b|\bno\s+\w+.*detected\b/i.test(raw)
 
   let level: OpenClawDoctorLevel = 'healthy'
-  if (exitCode !== 0 || /invalid config|failed|error/i.test(raw)) {
+  // Match "error" only as a standalone word, not in "Errors: 0" stats lines
+  if (exitCode !== 0 || /invalid config|\bfailed\b/i.test(raw) || /\berrors?\b(?!\s*:\s*0)/i.test(raw)) {
     level = 'error'
   } else if (issues.length > 0 || mentionsWarnings) {
     level = 'warning'
