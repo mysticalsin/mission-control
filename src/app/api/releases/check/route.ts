@@ -2,8 +2,14 @@ import { NextResponse } from 'next/server'
 import { existsSync } from 'node:fs'
 import { APP_VERSION } from '@/lib/version'
 
+// <!-- ADR: Use mysticalsin fork over builderz-labs original |
+//   Context: Ultron is cloned from mysticalsin/mission-control, not builderz-labs |
+//   Decision: Check releases from our actual fork; fall back to origin repo |
+//   Trade-offs: We won't see builderz-labs releases, but avoids phantom updates -->
+const GITHUB_OWNER = process.env.MC_GITHUB_OWNER ?? 'mysticalsin'
+const GITHUB_REPO = process.env.MC_GITHUB_REPO ?? 'mission-control'
 const GITHUB_RELEASES_URL =
-  'https://api.github.com/repos/builderz-labs/mission-control/releases/latest'
+  `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
 
 /** Simple semver compare: returns 1 if a > b, -1 if a < b, 0 if equal. */
 function compareSemver(a: string, b: string): number {
@@ -18,13 +24,14 @@ function compareSemver(a: string, b: string): number {
   return 0
 }
 
-export async function GET() {
+export async function GET(): Promise<Response> {
   try {
     const res = await fetch(GITHUB_RELEASES_URL, {
       headers: { Accept: 'application/vnd.github+json' },
-      next: { revalidate: 3600 }, // ISR cache for 1 hour
+      next: { revalidate: 3600 },
     })
 
+    // No releases published in our fork — not an error, just no update
     if (!res.ok) {
       return NextResponse.json(
         { updateAvailable: false, currentVersion: APP_VERSION },
