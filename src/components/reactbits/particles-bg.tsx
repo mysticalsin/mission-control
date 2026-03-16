@@ -80,6 +80,7 @@ export default function ParticlesBg({
       canvas.height = rect.height * dpr
       canvas.style.width = `${rect.width}px`
       canvas.style.height = `${rect.height}px`
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.scale(dpr, dpr)
       init()
     }

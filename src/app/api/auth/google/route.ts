@@ -108,7 +108,9 @@ export async function POST(request: NextRequest) {
     })
 
     return response
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Google login failed' }, { status: 400 })
+  } catch (error: unknown) {
+    const { logger } = await import('@/lib/logger')
+    logger.error({ err: error }, 'google_auth_error')
+    return NextResponse.json({ error: 'Google sign-in failed' }, { status: 400 })
   }
 }

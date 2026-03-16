@@ -61,8 +61,15 @@ export default function CountUp({
   useEffect(() => {
     if (!hasStarted) return
 
+    // Respect prefers-reduced-motion
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setValue(to)
+      return
+    }
+
     const startTime = performance.now()
     const durationMs = duration * 1000
+    let frameId: number
 
     const animate = (now: number) => {
       const elapsed = now - startTime
@@ -72,11 +79,12 @@ export default function CountUp({
       setValue(current)
 
       if (progress < 1) {
-        requestAnimationFrame(animate)
+        frameId = requestAnimationFrame(animate)
       }
     }
 
-    requestAnimationFrame(animate)
+    frameId = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(frameId)
   }, [hasStarted, from, to, duration])
 
   return (

@@ -32,6 +32,14 @@ export default function ShinyText({
   useEffect(() => {
     if (disabled || !spanRef.current) return
 
+    // Respect prefers-reduced-motion
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return
+    }
+
+    // Reset time tracking when effect re-runs (e.g. pause/unpause)
+    lastTimeRef.current = null
+
     const animationDuration = speed * 1000
 
     const update = (time: number) => {

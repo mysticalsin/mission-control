@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, FormEvent } from 'react'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
+import { APP_VERSION } from '@/lib/version'
 
 // Lazy-load heavy ReactBits components — no SSR for canvas/animation
 const ParticlesBg = dynamic(() => import('@/components/reactbits/particles-bg'), { ssr: false })
@@ -133,22 +134,18 @@ export default function LoginPage() {
     return true
   }, [])
 
-  async function handleSubmit(e: FormEvent) {
+  const handleSubmit = useCallback(async (e: FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const form = e.target as HTMLFormElement
-    const formUsername = (form.elements.namedItem('username') as HTMLInputElement)?.value || username
-    const formPassword = (form.elements.namedItem('password') as HTMLInputElement)?.value || password
-
     try {
-      await completeLogin('/api/auth/login', { username: formUsername, password: formPassword })
+      await completeLogin('/api/auth/login', { username, password })
     } catch {
       setError('Network error')
       setLoading(false)
     }
-  }
+  }, [username, password, completeLogin])
 
   // Google Sign-In SDK
   useEffect(() => {
@@ -394,7 +391,7 @@ export default function LoginPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80 shadow-[0_0_4px_rgba(52,211,153,0.5)]" />
               System Online
             </span>
-            <span>v1.0.0</span>
+            <span>v{APP_VERSION}</span>
             <span className="uppercase tracking-wider">Secure</span>
           </div>
         </div>

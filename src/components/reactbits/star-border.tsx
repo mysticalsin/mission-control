@@ -29,6 +29,7 @@ export default function StarBorder({
     >
       {/* Animated border gradient — top edge */}
       <div
+        aria-hidden="true"
         className="absolute inset-0 z-0 overflow-hidden rounded-xl"
         style={{ padding: '1px' }}
       >

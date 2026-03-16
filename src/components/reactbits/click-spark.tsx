@@ -11,13 +11,13 @@ interface ClickSparkProps {
 }
 
 interface Spark {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  life: number
-  maxLife: number
-  size: number
+  readonly x: number
+  readonly y: number
+  readonly vx: number
+  readonly vy: number
+  readonly life: number
+  readonly maxLife: number
+  readonly size: number
 }
 
 /**
@@ -125,7 +125,10 @@ export default function ClickSpark({
       canvas.style.width = `${rect.width}px`
       canvas.style.height = `${rect.height}px`
       const ctx = canvas.getContext('2d')
-      if (ctx) ctx.scale(dpr, dpr)
+      if (ctx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        ctx.scale(dpr, dpr)
+      }
     }
 
     resize()
