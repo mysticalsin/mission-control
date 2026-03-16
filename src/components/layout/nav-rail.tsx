@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { MantuLogo } from '@/components/brand/mantu-logo'
 import { useState, useEffect } from 'react'
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel, usePrefetchPanel } from '@/lib/navigation'
@@ -34,6 +35,13 @@ const navGroups: NavGroup[] = [
       { id: 'channels', label: 'Channels', icon: <ChannelsIcon />, priority: false },
       { id: 'skills', label: 'Skills', icon: <SkillsIcon />, priority: false },
       { id: 'memory', label: 'Memory', icon: <MemoryIcon />, priority: false },
+      { id: 'marketing', label: 'Marketing', icon: <MarketingIcon />, priority: false },
+      { id: 'analytics', label: 'Analytics', icon: <AnalyticsIcon />, priority: false },
+      { id: 'voice', label: 'Voice', icon: <VoiceIcon />, priority: false },
+      { id: 'life-manager', label: 'Life Manager', icon: <LifeManagerIcon />, priority: false },
+      { id: 'meetings', label: 'Meetings', icon: <MeetingsIcon />, priority: false },
+      { id: 'trading', label: 'Trading', icon: <TradingIcon />, priority: false },
+      { id: 'marketplace', label: 'Marketplace', icon: <MarketplaceIcon />, priority: false },
     ],
   },
   {
@@ -184,14 +192,8 @@ export function NavRail() {
       >
         {/* Header: Logo + toggle */}
         <div className={`flex items-center shrink-0 ${sidebarExpanded ? 'px-3 py-3 gap-2.5' : 'flex-col py-3 gap-2'}`}>
-          <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0 hover:border-void-cyan/40 hover:glow-cyan transition-smooth">
-            <Image
-              src="/brand/mantu-logo-128.png" onError={(e) => { (e.target as HTMLImageElement).src = "/brand/mc-logo-128.png" }}
-              alt="Ultron Mission Control logo"
-              width={36}
-              height={36}
-              className="w-full h-full object-cover"
-            />
+          <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0 hover:border-purple-500/40 transition-smooth">
+            <MantuLogo variant="mark" size={36} />
           </div>
           {sidebarExpanded && (
             <div className="flex items-baseline gap-2 truncate flex-1 min-w-0">
@@ -1435,6 +1437,72 @@ function PluginIcon() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 2v3M10 2v3M4 5h8a1 1 0 011 1v7a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z" />
       <circle cx="8" cy="10" r="1.5" />
+    </svg>
+  )
+}
+
+function MarketingIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 8l4-5v10L2 8z" />
+      <path d="M6 4h6a2 2 0 010 8H6" />
+      <path d="M13 6v4" />
+    </svg>
+  )
+}
+
+function AnalyticsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 14V9M5.5 14V6M9 14V8M12.5 14V3" />
+      <path d="M2 9l3.5-3 3.5 2 3.5-5" />
+    </svg>
+  )
+}
+
+function VoiceIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="1" width="4" height="8" rx="2" />
+      <path d="M3 7a5 5 0 0010 0" />
+      <path d="M8 12v3" />
+    </svg>
+  )
+}
+
+function LifeManagerIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M8 4v4l3 2" />
+    </svg>
+  )
+}
+
+function MeetingsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="3" width="14" height="11" rx="1.5" />
+      <path d="M4 1v3M12 1v3M1 7h14" />
+    </svg>
+  )
+}
+
+function TradingIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12l3-4 3 2 4-6 4 3" />
+      <path d="M11 4h4v4" />
+    </svg>
+  )
+}
+
+function MarketplaceIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 6l1.5-4h11L15 6" />
+      <path d="M1 6h14v8a1 1 0 01-1 1H2a1 1 0 01-1-1V6z" />
+      <path d="M6 10h4v5H6z" />
     </svg>
   )
 }

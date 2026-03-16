@@ -1,9 +1,9 @@
 'use client'
 
-import Image from 'next/image'
 import { useState, useEffect } from 'react'
 import { useMissionControl } from '@/store'
 import { Button } from '@/components/ui/button'
+import { MantuLogo } from '@/components/brand/mantu-logo'
 
 interface NavItem {
   id: string
@@ -91,13 +91,7 @@ export function NavRail() {
         {/* Header: Logo + toggle */}
         <div className={`flex items-center shrink-0 ${sidebarExpanded ? 'px-3 py-3 gap-2.5' : 'flex-col py-3 gap-2'}`}>
           <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0">
-            <Image
-              src="/brand/mantu-logo-128.png" onError={(e) => { (e.target as HTMLImageElement).src = "/brand/mc-logo-128.png" }}
-              alt="Ultron Mission Control logo"
-              width={36}
-              height={36}
-              className="w-full h-full object-cover"
-            />
+            <MantuLogo variant="mark" size={36} />
           </div>
           {sidebarExpanded && (
             <span className="text-sm font-semibold text-foreground truncate flex-1">Ultron Mission Control</span>

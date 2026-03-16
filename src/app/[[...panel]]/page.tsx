@@ -36,6 +36,13 @@ import { SecurityAuditPanel } from '@/components/panels/security-audit-panel'
 import { NodesPanel } from '@/components/panels/nodes-panel'
 import { ExecApprovalPanel } from '@/components/panels/exec-approval-panel'
 import { ChatPagePanel } from '@/components/panels/chat-page-panel'
+import { MarketingPanel } from '@/components/panels/marketing-panel'
+import { AnalyticsPanel } from '@/components/panels/analytics-panel'
+import { TradingPanel } from '@/components/panels/trading-panel'
+import { VoicePanel } from '@/components/panels/voice-panel'
+import { LifeManagerPanel } from '@/components/panels/life-manager-panel'
+import { MeetingsPanel } from '@/components/panels/meetings-panel'
+import { MarketplacePanel } from '@/components/panels/marketplace-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { getPluginPanel } from '@/lib/plugins'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -53,6 +60,7 @@ import { completeNavigationTiming } from '@/lib/navigation-metrics'
 import { panelHref, useNavigateToPanel } from '@/lib/navigation'
 import { clearOnboardingDismissedThisSession, clearOnboardingReplayFromStart, getOnboardingSessionDecision, markOnboardingReplayFromStart, readOnboardingDismissedThisSession } from '@/lib/onboarding-session'
 import { Button } from '@/components/ui/button'
+import { SystemTicker } from '@/components/layout/system-ticker'
 import { useMissionControl } from '@/store'
 
 interface GatewaySummary {
@@ -385,6 +393,7 @@ export default function Home() {
             </p>
           </footer>
         </main>
+        {!showOnboarding && <SystemTicker />}
       </div>
 
       {/* Right: Live feed (hidden on mobile) */}
@@ -547,6 +556,20 @@ function ContentRouter({ tab }: { tab: string }) {
       return <ExecApprovalPanel />
     case 'chat':
       return <ChatPagePanel />
+    case 'marketing':
+      return <MarketingPanel />
+    case 'analytics':
+      return <AnalyticsPanel />
+    case 'trading':
+      return <TradingPanel />
+    case 'voice':
+      return <VoicePanel />
+    case 'life-manager':
+      return <LifeManagerPanel />
+    case 'meetings':
+      return <MeetingsPanel />
+    case 'marketplace':
+      return <MarketplacePanel />
     default: {
       return renderPluginPanel(tab)
     }

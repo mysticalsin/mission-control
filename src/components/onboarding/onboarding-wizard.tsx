@@ -1,7 +1,7 @@
 'use client'
 
-import Image from 'next/image'
 import { createPortal } from 'react-dom'
+import { MantuLogo } from '@/components/brand/mantu-logo'
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
@@ -292,13 +292,7 @@ function StepWelcome({ isGateway, capabilities, onNext, onSkip }: {
     <>
       <div className="flex-1 flex flex-col items-center justify-center text-center gap-4">
         <div className="w-14 h-14 rounded-xl overflow-hidden bg-surface-1 border border-border/50 flex items-center justify-center shadow-lg">
-          <Image
-            src="/brand/mantu-logo-128.png" onError={(e) => { (e.target as HTMLImageElement).src = "/brand/mc-logo-128.png" }}
-            alt="Ultron Mission Control"
-            width={56}
-            height={56}
-            className="w-full h-full object-cover"
-          />
+          <MantuLogo variant="mark" size={56} />
         </div>
         <div>
           <h2 className="text-xl font-semibold mb-2">Welcome to Ultron Mission Control</h2>

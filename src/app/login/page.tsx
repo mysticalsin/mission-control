@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, FormEvent } from 'react'
-import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { APP_VERSION } from '@/lib/version'
+import { MantuLogo } from '@/components/brand/mantu-logo'
 
 // Lazy-load heavy ReactBits components — no SSR for canvas/animation
 const ParticlesBg = dynamic(() => import('@/components/reactbits/particles-bg'), { ssr: false })
@@ -69,18 +69,11 @@ function UltronLogo() {
   return (
     <div className="relative flex items-center justify-center">
       {/* Outer glow ring */}
-      <div className="absolute w-24 h-24 rounded-full border border-primary/20 animate-ping" style={{ animationDuration: '3s' }} />
-      <div className="absolute w-20 h-20 rounded-full border border-primary/30 animate-pulse" />
+      <div className="absolute w-24 h-24 rounded-full border border-purple-500/20 animate-ping" style={{ animationDuration: '3s' }} />
+      <div className="absolute w-20 h-20 rounded-full border border-purple-500/30 animate-pulse" />
       {/* Core logo */}
-      <div className="relative w-16 h-16 rounded-2xl overflow-hidden bg-card/90 border border-primary/40 shadow-[0_0_30px_rgba(34,211,238,0.15)] flex items-center justify-center backdrop-blur-sm">
-        <Image
-          src="/brand/mantu-logo-128.png"
-          alt="Ultron"
-          width={56}
-          height={56}
-          className="h-14 w-14 object-cover"
-          priority
-        />
+      <div className="relative w-16 h-16 rounded-2xl overflow-hidden bg-card/90 border border-purple-500/40 shadow-[0_0_30px_rgba(123,47,190,0.25)] flex items-center justify-center backdrop-blur-sm p-1">
+        <MantuLogo variant="mark" size={56} />
       </div>
       {/* Status dot — system online */}
       <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-background shadow-[0_0_8px_rgba(52,211,153,0.6)]">

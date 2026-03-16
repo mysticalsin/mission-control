@@ -1,7 +1,7 @@
 'use client'
 
-import Image from 'next/image'
 import { useEffect, useState } from 'react'
+import { MantuLogo } from '@/components/brand/mantu-logo'
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
 import { createClientLogger } from '@/lib/client-logger'
@@ -86,13 +86,7 @@ export function Sidebar() {
       <div className="p-6 border-b border-border">
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center">
-            <Image
-              src="/brand/mantu-logo-128.png" onError={(e) => { (e.target as HTMLImageElement).src = "/brand/mc-logo-128.png" }}
-              alt="Ultron Mission Control logo"
-              width={32}
-              height={32}
-              className="w-full h-full object-cover"
-            />
+            <MantuLogo variant="mark" size={32} />
           </div>
           <div>
             <h2 className="font-bold text-foreground">Ultron Mission Control</h2>

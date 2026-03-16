@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import { useEffect } from 'react'
 import { APP_VERSION } from '@/lib/version'
+import { MantuLogo } from '@/components/brand/mantu-logo'
 
 interface InitStep {
   key: string
@@ -135,15 +136,7 @@ function PageLoader({ steps }: { steps?: InitStep[] }) {
           {/* Phase 2: MC mark emerges (fades in at 2.0s) */}
           <div className="absolute inset-0 flex items-center justify-center opacity-0 animate-mc-fade-in">
             <div className="animate-float" style={{ animationDelay: '2.7s' }}>
-              <Image
-                src="/brand/mantu-logo-128.png" onError={(e) => { (e.target as HTMLImageElement).src = "/brand/mc-logo-128.png" }}
-                alt="Ultron Mission Control"
-                width={56}
-                height={56}
-                priority
-                fetchPriority="high"
-                className="w-14 h-14"
-              />
+              <MantuLogo variant="mark" size={56} />
             </div>
           </div>
         </div>
