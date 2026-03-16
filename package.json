@@ -19,7 +19,9 @@
     "test:e2e:openclaw:gateway": "pnpm run verify:node && E2E_GATEWAY_EXPECTED=1 playwright test -c playwright.openclaw.gateway.config.ts",
     "test:e2e:openclaw": "pnpm test:e2e:openclaw:local && pnpm test:e2e:openclaw:gateway",
     "test:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm test:e2e",
-    "quality:gate": "pnpm test:all"
+    "quality:gate": "pnpm test:all",
+    "sync:upstream": "bash scripts/sync-upstream.sh",
+    "sync:upstream:dry": "bash scripts/sync-upstream.sh --dry-run"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.4",
