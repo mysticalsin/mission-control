@@ -45,3 +45,6 @@ playwright-report/
 # Claude Code context files
 CLAUDE.md
 **/CLAUDE.md
+
+# Claude audit logs
+.claude/audit.log
