@@ -28,7 +28,11 @@ export async function GET(): Promise<Response> {
   try {
     const res = await fetch(GITHUB_RELEASES_URL, {
       headers: { Accept: 'application/vnd.github+json' },
-      next: { revalidate: 3600 },
+      // <!-- ADR: Short revalidation window to avoid serving stale release data |
+      //   Context: Next.js fetch cache persisted old builderz-labs v2.0.0 response |
+      //   Decision: 5-minute window balances freshness vs GitHub rate limits |
+      //   Trade-offs: More GitHub API calls, but releases change infrequently -->
+      next: { revalidate: 300 },
     })
 
     // No releases published in our fork — not an error, just no update
