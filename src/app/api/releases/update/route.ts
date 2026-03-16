@@ -23,7 +23,43 @@ function pnpm(args: string[], cwd: string): string {
   return execFileSync('pnpm', args, { ...EXEC_OPTS, cwd }).trim()
 }
 
-export async function POST(request: Request) {
+// Resolve a version target to a concrete git ref (tag, branch, or SHA)
+function resolveRef(
+  target: string,
+  cwd: string
+): { ref: string; kind: 'tag' | 'branch' | 'sha' } {
+  const tag = target.startsWith('v') ? target : `v${target}`
+
+  // Try tag first (e.g. v2.0.0)
+  try {
+    git(['rev-parse', '--verify', `refs/tags/${tag}`], cwd)
+    return { ref: tag, kind: 'tag' }
+  } catch {
+    // Tag not found — fall through
+  }
+
+  // Try branch (e.g. "main", "release/2.0.0")
+  try {
+    git(['rev-parse', '--verify', `refs/remotes/origin/${target}`], cwd)
+    return { ref: `origin/${target}`, kind: 'branch' }
+  } catch {
+    // Branch not found — fall through
+  }
+
+  // Try raw SHA or short SHA
+  try {
+    const resolved = git(['rev-parse', '--verify', target], cwd)
+    return { ref: resolved, kind: 'sha' }
+  } catch {
+    // Nothing matched
+  }
+
+  throw new Error(
+    `Could not resolve "${target}" — no matching tag (${tag}), branch, or commit found in remote`
+  )
+}
+
+export async function POST(request: Request): Promise<Response> {
   const auth = requireRole(request, 'admin')
   if (auth.error) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -34,7 +70,6 @@ export async function POST(request: Request) {
   const steps: { step: string; output: string }[] = []
 
   try {
-    // Parse target version from request body
     const body = await request.json().catch(() => ({}))
     const targetVersion: string | undefined = body.targetVersion
     if (!targetVersion) {
@@ -44,15 +79,13 @@ export async function POST(request: Request) {
       )
     }
 
-    // Normalize to tag format (e.g. "1.2.0" -> "v1.2.0")
-    const tag = targetVersion.startsWith('v') ? targetVersion : `v${targetVersion}`
-
     // 1. Check for uncommitted changes
     const status = git(['status', '--porcelain'], cwd)
     if (status) {
       return NextResponse.json(
         {
-          error: 'Working tree has uncommitted changes. Please commit or stash them before updating.',
+          error:
+            'Working tree has uncommitted changes. Please commit or stash them before updating.',
           dirty: true,
           files: status.split('\n').slice(0, 20),
         },
@@ -60,23 +93,30 @@ export async function POST(request: Request) {
       )
     }
 
-    // 2. Fetch tags and release code from origin
+    // 2. Fetch tags and branches from origin
     const fetchOut = git(['fetch', 'origin', '--tags', '--force'], cwd)
     steps.push({ step: 'git fetch', output: fetchOut || 'OK' })
 
-    // 3. Verify the tag exists
+    // 3. Resolve version to a concrete ref (tag → branch → SHA)
+    let resolved: { ref: string; kind: string }
     try {
-      git(['rev-parse', '--verify', `refs/tags/${tag}`], cwd)
-    } catch {
-      return NextResponse.json(
-        { error: `Release tag ${tag} not found in remote` },
-        { status: 404 }
-      )
+      resolved = resolveRef(targetVersion, cwd)
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown resolution error'
+      return NextResponse.json({ error: message }, { status: 404 })
     }
+    steps.push({
+      step: 'resolve ref',
+      output: `${resolved.kind}: ${resolved.ref}`,
+    })
 
-    // 4. Checkout the release tag
-    const checkoutOut = git(['checkout', tag], cwd)
-    steps.push({ step: `git checkout ${tag}`, output: checkoutOut })
+    // 4. Checkout the resolved ref
+    const checkoutOut = git(['checkout', resolved.ref], cwd)
+    steps.push({
+      step: `git checkout ${resolved.ref}`,
+      output: checkoutOut,
+    })
 
     // 5. Install dependencies
     const installOut = pnpm(['install', '--frozen-lockfile'], cwd)
@@ -87,7 +127,9 @@ export async function POST(request: Request) {
     steps.push({ step: 'pnpm build', output: buildOut })
 
     // 7. Read new version from package.json
-    const newPkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf-8'))
+    const newPkg = JSON.parse(
+      readFileSync(join(cwd, 'package.json'), 'utf-8')
+    )
     const newVersion: string = newPkg.version ?? targetVersion
 
     // 8. Log to audit_log
@@ -101,27 +143,28 @@ export async function POST(request: Request) {
         JSON.stringify({
           previousVersion: APP_VERSION,
           newVersion,
-          tag,
+          resolvedRef: resolved.ref,
+          resolvedKind: resolved.kind,
         })
       )
     } catch {
-      // Non-critical -- don't fail the update if audit logging fails
+      // Non-critical — don't fail the update if audit logging fails
     }
 
     return NextResponse.json({
       success: true,
       previousVersion: APP_VERSION,
       newVersion,
-      tag,
+      ref: resolved.ref,
+      refKind: resolved.kind,
       steps,
       restartRequired: true,
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     const message =
-      err?.stderr?.toString?.()?.trim() ||
-      err?.stdout?.toString?.()?.trim() ||
-      err?.message ||
-      'Unknown error during update'
+      err instanceof Error
+        ? err.message
+        : 'Unknown error during update'
 
     return NextResponse.json(
       {
