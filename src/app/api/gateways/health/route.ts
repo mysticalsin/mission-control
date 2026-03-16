@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
       const status = res.ok ? "online" : "error"
       const gatewayVersion = parseGatewayVersion(res)
       const compatibilityWarning = hasOpenClaw32ToolsProfileRisk(gatewayVersion)
-        ? 'OpenClaw 2026.3.2+ defaults tools.profile=messaging; Mission Control should enforce coding profile when spawning.'
+        ? 'OpenClaw 2026.3.2+ defaults tools.profile=messaging; Ultron Mission Control should enforce coding profile when spawning.'
         : undefined
 
       results.push({

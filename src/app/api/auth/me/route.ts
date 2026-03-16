@@ -56,8 +56,9 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: 'Current password is required' }, { status: 400 })
       }
 
-      if (new_password.length < 8) {
-        return NextResponse.json({ error: 'New password must be at least 8 characters' }, { status: 400 })
+      // SECURITY: Enforce same minimum as createUser (MEDIUM-1 fix)
+      if (new_password.length < 12) {
+        return NextResponse.json({ error: 'New password must be at least 12 characters' }, { status: 400 })
       }
 
       // Verify current password by fetching stored hash

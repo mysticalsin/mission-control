@@ -6,26 +6,26 @@ export function PromoBanner() {
       <div className="flex items-center gap-2 min-w-0">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
         <p className="text-xs text-amber-200/90">
-          Built with care by <span className="font-semibold text-amber-100">nyk</span> · available for client and custom AI orchestration work.
+          Built by <span className="font-semibold text-amber-100">Tony W.</span> for Mantu Group · AI orchestration platform.
         </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 md:ml-auto">
         <a
-          href="https://x.com/nyk_builderz"
+          href="https://mantu.group"
           target="_blank"
           rel="noopener noreferrer"
           className="text-2xs font-medium text-amber-100 hover:text-white px-2 py-1 rounded border border-amber-300/30 hover:border-amber-200/50 transition-colors"
         >
-          Hire nyk
+          Contact Us
         </a>
         <a
-          href="https://github.com/0xNyk"
+          href="https://mantu.group"
           target="_blank"
           rel="noopener noreferrer"
           className="text-2xs font-medium text-amber-200 hover:text-amber-100 px-2 py-1 rounded border border-amber-500/20 hover:border-amber-400/40 transition-colors"
         >
-          Follow nyk
+          Mantu Group
         </a>
         <a
           href="https://dictx.splitlabs.io"
@@ -36,7 +36,7 @@ export function PromoBanner() {
           DictX (Upcoming)
         </a>
         <a
-          href="https://x.com/nyk_builderz/status/2029007663011643498?s=20"
+          href="https://mantu.group"
           target="_blank"
           rel="noopener noreferrer"
           className="text-2xs font-medium text-amber-200 hover:text-amber-100 px-2 py-1 rounded border border-amber-500/20 hover:border-amber-400/40 transition-colors"

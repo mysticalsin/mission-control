@@ -1,7 +1,7 @@
 {
-  "name": "mission-control",
-  "version": "2.0.0",
-  "description": "OpenClaw Mission Control — open-source agent orchestration dashboard",
+  "name": "ultron-mission-control",
+  "version": "1.0.0",
+  "description": "Ultron Mission Control — autonomous agent orchestration dashboard built by Tony W. for Mantu Group",
   "scripts": {
     "verify:node": "node scripts/check-node-version.mjs",
     "dev": "pnpm run verify:node && next dev --hostname 127.0.0.1 --port ${PORT:-3000}",
@@ -31,6 +31,7 @@
     "clsx": "^2.1.1",
     "eslint": "^9.18.0",
     "eslint-config-next": "^16.1.6",
+    "motion": "^12.36.0",
     "next": "^16.1.6",
     "next-themes": "^0.4.6",
     "pino": "^10.3.1",
@@ -66,7 +67,7 @@
     "vitest": "^2.1.5"
   },
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22"
   },
   "keywords": [
     "openclaw",
@@ -75,7 +76,7 @@
     "dashboard",
     "nextjs"
   ],
-  "author": "Builderz Labs",
+  "author": "Tony W. (Mantu Group)",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -122,7 +122,7 @@ export function useWebSocket() {
       normalized.includes('requires device identity') ||
       normalized.includes('secure context')
     ) {
-      return 'Gateway requires device identity. Open Mission Control via HTTPS (or localhost), then reconnect so WebCrypto signing can run.'
+      return 'Gateway requires device identity. Open Ultron Mission Control via HTTPS (or localhost), then reconnect so WebCrypto signing can run.'
     }
     if (normalized.includes('device_auth_signature_invalid')) {
       return 'Gateway rejected device signature. Clear local device identity in the browser and reconnect.'
@@ -269,7 +269,7 @@ export function useWebSocket() {
         maxProtocol: PROTOCOL_VERSION,
         client: {
           id: clientId,
-          displayName: 'Mission Control',
+          displayName: 'Ultron Mission Control',
           version: APP_VERSION,
           platform: 'web',
           mode: clientMode,

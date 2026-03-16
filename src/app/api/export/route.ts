@@ -32,13 +32,22 @@ export async function GET(request: NextRequest) {
   const conditions: string[] = []
   const params: any[] = []
 
+  // SECURITY: Validate timestamp params to prevent NaN bypass (MEDIUM-6 fix)
   if (since) {
+    const sinceTs = parseInt(since, 10)
+    if (!Number.isFinite(sinceTs) || sinceTs < 0) {
+      return NextResponse.json({ error: 'Invalid since timestamp' }, { status: 400 })
+    }
     conditions.push('created_at >= ?')
-    params.push(parseInt(since))
+    params.push(sinceTs)
   }
   if (until) {
+    const untilTs = parseInt(until, 10)
+    if (!Number.isFinite(untilTs) || untilTs < 0) {
+      return NextResponse.json({ error: 'Invalid until timestamp' }, { status: 400 })
+    }
     conditions.push('created_at <= ?')
-    params.push(parseInt(until))
+    params.push(untilTs)
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''

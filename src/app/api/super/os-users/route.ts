@@ -332,11 +332,11 @@ export async function POST(request: NextRequest) {
           try {
             execFileSync('/usr/bin/sudo', ['-n', '/usr/sbin/sysadminctl', ...args], { timeout: 15000, stdio: 'pipe' })
           } catch (sudoErr: any) {
-            const msg = sudoErr?.stderr?.toString?.() || sudoErr?.message || 'Failed to create OS user'
-            logger.error({ err: sudoErr }, 'Failed to create macOS user')
+            const rawMsg = sudoErr?.stderr?.toString?.() || sudoErr?.message || ''
+            logger.error({ err: sudoErr, detail: rawMsg }, 'Failed to create macOS user')
             return NextResponse.json({
-              error: `Failed to create OS user. This requires admin privileges. ${msg}`,
-              hint: 'Run Mission Control with sudo or grant the current user admin rights.',
+              error: 'Failed to create OS user. This requires admin privileges.',
+              hint: 'Run Ultron Mission Control with sudo or grant the current user admin rights.',
             }, { status: 500 })
           }
         }
@@ -346,10 +346,10 @@ export async function POST(request: NextRequest) {
         try {
           execFileSync('/usr/bin/sudo', ['-n', '/usr/sbin/useradd', ...args], { timeout: 15000, stdio: 'pipe' })
         } catch (e: any) {
-          const msg = e?.stderr?.toString?.() || e?.message || 'Failed to create OS user'
-          logger.error({ err: e }, 'Failed to create Linux user')
+          const rawMsg = e?.stderr?.toString?.() || e?.message || ''
+          logger.error({ err: e, detail: rawMsg }, 'Failed to create Linux user')
           return NextResponse.json({
-            error: `Failed to create OS user: ${msg}`,
+            error: 'Failed to create OS user. Check server logs for details.',
             hint: 'Ensure the MC process user has passwordless sudo for useradd.',
           }, { status: 500 })
         }
@@ -425,6 +425,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Organization slug or user already exists' }, { status: 409 })
     }
     logger.error({ err: e }, 'POST /api/super/os-users error')
-    return NextResponse.json({ error: e?.message || 'Failed to create organization' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to create organization. Check server logs for details.' }, { status: 500 })
   }
 }

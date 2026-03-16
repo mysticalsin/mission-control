@@ -6,6 +6,7 @@ import { config } from '@/lib/config'
 import { validateBody, gatewayConfigUpdateSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
+import { logger } from '@/lib/logger'
 
 function getConfigPath(): string | null {
   return config.openclawConfigPath || null
@@ -64,7 +65,8 @@ export async function GET(request: NextRequest) {
     if (err.code === 'ENOENT') {
       return NextResponse.json({ error: 'Config file not found', path: configPath }, { status: 404 })
     }
-    return NextResponse.json({ error: `Failed to read config: ${err.message}` }, { status: 500 })
+    logger.error({ err }, 'Failed to read gateway config')
+    return NextResponse.json({ error: 'Failed to read config. Check server logs for details.' }, { status: 500 })
   }
 }
 
@@ -189,7 +191,8 @@ export async function PUT(request: NextRequest) {
       hash: computeHash(newRaw),
     })
   } catch (err: any) {
-    return NextResponse.json({ error: `Failed to update config: ${err.message}` }, { status: 500 })
+    logger.error({ err }, 'Failed to update gateway config')
+    return NextResponse.json({ error: 'Failed to update config. Check server logs for details.' }, { status: 500 })
   }
 }
 

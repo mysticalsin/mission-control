@@ -36,7 +36,7 @@ function resolveMetadataBase(): URL {
   }
 
   // Prevent localhost fallback in production metadata when env is unset.
-  return new URL('https://mission-control.local')
+  return new URL('https://ultron.local')
 }
 
 const metadataBase = resolveMetadataBase()
@@ -49,32 +49,32 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Mission Control',
-  description: 'OpenClaw Agent Orchestration Dashboard',
+  title: 'Ultron Mission Control',
+  description: 'Autonomous Agent Orchestration Dashboard — Built by Tony W. for Mantu Group',
   metadataBase,
   icons: {
     icon: [
       { url: '/icon.png', type: 'image/png', sizes: '256x256' },
-      { url: '/brand/mc-logo-128.png', type: 'image/png', sizes: '128x128' },
+      { url: '/brand/mantu-logo-128.png', type: 'image/png', sizes: '128x128' },
     ],
     apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
     shortcut: ['/icon.png'],
   },
   openGraph: {
-    title: 'Mission Control',
-    description: 'OpenClaw Agent Orchestration Dashboard',
-    images: [{ url: '/brand/mc-logo-512.png', width: 512, height: 512, alt: 'Mission Control logo' }],
+    title: 'Ultron Mission Control',
+    description: 'Autonomous Agent Orchestration Dashboard — Built by Tony W. for Mantu Group',
+    images: [{ url: '/brand/mantu-logo-512.png', width: 512, height: 512, alt: 'Ultron Mission Control' }],
   },
   twitter: {
     card: 'summary',
-    title: 'Mission Control',
-    description: 'OpenClaw Agent Orchestration Dashboard',
-    images: ['/brand/mc-logo-512.png'],
+    title: 'Ultron Mission Control',
+    description: 'Autonomous Agent Orchestration Dashboard — Built by Tony W. for Mantu Group',
+    images: ['/brand/mantu-logo-512.png'],
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Mission Control',
+    title: 'Ultron Mission Control',
   },
 }
 

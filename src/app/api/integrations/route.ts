@@ -456,7 +456,8 @@ export async function GET(request: NextRequest) {
       .sort(([, a], [, b]) => a.order - b.order)
       .map(([id, meta]) => ({ id, label: meta.label })),
     opAvailable,
-    envPath: getEnvPath(),
+    // SECURITY: Do not expose envPath to client (HIGH-6 fix)
+    envAvailable: !!getEnvPath(),
   })
 }
 

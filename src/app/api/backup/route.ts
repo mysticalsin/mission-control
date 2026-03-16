@@ -33,9 +33,10 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.created_at - a.created_at)
 
-    return NextResponse.json({ backups: files, dir: BACKUP_DIR })
+    // SECURITY: Do not expose absolute backup dir path (HIGH-5/MEDIUM-7 fix)
+    return NextResponse.json({ backups: files, count: files.length })
   } catch {
-    return NextResponse.json({ backups: [], dir: BACKUP_DIR })
+    return NextResponse.json({ backups: [], count: 0 })
   }
 }
 
@@ -68,9 +69,8 @@ export async function POST(request: NextRequest) {
         stderr = error.stderr || ''
         const combined = `${stdout}\n${stderr}`
         if (!combined.includes('Created')) {
-          const message = stderr || error.message || 'Unknown error'
-          logger.error({ err: error }, 'Gateway backup failed')
-          return NextResponse.json({ error: `Gateway backup failed: ${message}` }, { status: 500 })
+          logger.error({ err: error, stderr }, 'Gateway backup failed')
+          return NextResponse.json({ error: 'Gateway backup failed. Check server logs for details.' }, { status: 500 })
         }
       }
 
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     logger.error({ err: error }, 'Backup failed')
-    return NextResponse.json({ error: `Backup failed: ${error.message}` }, { status: 500 })
+    return NextResponse.json({ error: 'Backup failed. Check server logs for details.' }, { status: 500 })
   }
 }
 
