@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { ALL_ULTRON_AGENTS, getAgentsByTier } from '@/lib/ultron-agents'
 import { logger } from '@/lib/logger'
+import { readLimiter } from '@/lib/rate-limit'
 
 /**
  * GET /api/ultron/status
@@ -12,6 +13,9 @@ import { logger } from '@/lib/logger'
  * - System vitals
  */
 export async function GET(request: NextRequest) {
+  const limited = readLimiter(request)
+  if (limited) return limited
+
   const auth = requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 

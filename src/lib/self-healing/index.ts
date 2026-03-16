@@ -54,6 +54,7 @@ export {
   getRecentRecoveryLogs,
   getServiceRecoveryLogs,
   registerRecoveryStrategy,
+  sanitizeDiagnosis,
 } from './auto-recovery'
 
 export {

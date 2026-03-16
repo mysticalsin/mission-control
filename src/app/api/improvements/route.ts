@@ -3,7 +3,11 @@ import { requireRole } from '@/lib/auth'
 import { selfImprovingEngine } from '@/lib/self-improving'
 import { logger } from '@/lib/logger'
 import { validateBody } from '@/lib/validation'
+import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { z } from 'zod'
+
+/** Valid values for the suggestion status query parameter */
+const VALID_SUGGESTION_STATUSES = new Set(['pending', 'accepted', 'rejected', 'implemented'])
 
 // ---------------------------------------------------------------------------
 // Request schemas
@@ -54,6 +58,9 @@ const postBodySchema = z.discriminatedUnion('type', [
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest) {
+  const limited = readLimiter(request)
+  if (limited) return limited
+
   const auth = requireRole(request, 'viewer')
   if ('error' in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -71,9 +78,17 @@ export async function GET(request: NextRequest) {
     }
 
     if (view === 'suggestions') {
-      const status = searchParams.get('status') as any
+      const rawStatus = searchParams.get('status')
+      // Validate status parameter against known values (H2)
+      if (rawStatus && !VALID_SUGGESTION_STATUSES.has(rawStatus)) {
+        return NextResponse.json(
+          { error: `Invalid status. Must be one of: ${[...VALID_SUGGESTION_STATUSES].join(', ')}` },
+          { status: 400 }
+        )
+      }
+      const status = rawStatus as 'pending' | 'accepted' | 'rejected' | 'implemented' | undefined
       return NextResponse.json({
-        data: selfImprovingEngine.getSuggestions(workspaceId, status || undefined),
+        data: selfImprovingEngine.getSuggestions(workspaceId, status ?? undefined),
       })
     }
 
@@ -113,6 +128,9 @@ export async function GET(request: NextRequest) {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
+  const limited = mutationLimiter(request)
+  if (limited) return limited
+
   const auth = requireRole(request, 'operator')
   if ('error' in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })

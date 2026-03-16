@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { getUserFromRequest } from '@/lib/auth'
+import { requireRole } from '@/lib/auth'
 import { ALL_ULTRON_AGENTS } from '@/lib/ultron-agents'
 import { logger } from '@/lib/logger'
+import { heavyLimiter } from '@/lib/rate-limit'
 
 /**
  * POST /api/ultron/seed
@@ -10,10 +11,14 @@ import { logger } from '@/lib/logger'
  * Requires admin authentication.
  */
 export async function POST(request: Request) {
-  const user = getUserFromRequest(request)
-  if (!user || user.role !== 'admin') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const limited = heavyLimiter(request)
+  if (limited) return limited
+
+  const auth = requireRole(request, 'admin')
+  if ('error' in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
+  const user = auth.user
 
   const db = getDatabase()
   const workspaceId = user.workspace_id || 1
@@ -91,15 +96,19 @@ export async function POST(request: Request) {
 /**
  * GET /api/ultron/seed
  * Returns the current seeding status - how many agents are in DB vs expected.
+ * Requires admin role (C2 — prevents non-admin from enumerating agent state).
  */
 export async function GET(request: Request) {
-  const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const limited = heavyLimiter(request)
+  if (limited) return limited
+
+  const auth = requireRole(request, 'admin')
+  if ('error' in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
 
   const db = getDatabase()
-  const workspaceId = user.workspace_id || 1
+  const workspaceId = auth.user.workspace_id ?? 1
 
   const agentNames = ALL_ULTRON_AGENTS.map(a => a.name)
   const placeholders = agentNames.map(() => '?').join(',')

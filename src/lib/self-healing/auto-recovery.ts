@@ -79,6 +79,11 @@ export function attemptRecovery(
   return action
 }
 
+/**
+ * Build a diagnosis string for internal logging and DB storage.
+ * SECURITY: Raw error messages are stored in the DB for admin debugging
+ * but MUST be sanitized before exposing to non-admin API callers.
+ */
 function diagnose(serviceName: string, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const classification = classifyError(error)
@@ -90,6 +95,15 @@ function diagnose(serviceName: string, error: unknown): string {
     `Class: ${classification.errorClass}`,
     `Retryable: ${classification.retryable}`,
   ].join(' | ')
+}
+
+/**
+ * Sanitize a diagnosis string for non-admin callers by stripping
+ * raw error messages that may leak internal details.
+ */
+export function sanitizeDiagnosis(diagnosis: string): string {
+  // Remove the "Error: ..." segment, keep service/type/class/retryable
+  return diagnosis.replace(/\s*\|\s*Error:\s*[^|]*/i, '')
 }
 
 function executeRecovery(
@@ -152,7 +166,7 @@ function escalate(
 
   const action: RecoveryAction = Object.freeze({
     serviceName,
-    diagnosis: `Escalated after ${attemptNumber} attempts: ${message}`,
+    diagnosis: `Escalated after ${attemptNumber} attempts | Service: ${serviceName} | Type: ${errorType} | Class: ${errorClass}`,
     actionTaken: 'Escalated to operator',
     result: 'escalated' as const,
     attemptNumber,
