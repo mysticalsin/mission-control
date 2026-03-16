@@ -35,7 +35,7 @@ export async function GET(): Promise<Response> {
     if (!res.ok) {
       return NextResponse.json(
         { updateAvailable: false, currentVersion: APP_VERSION },
-        { headers: { 'Cache-Control': 'public, max-age=3600' } }
+        { headers: { 'Cache-Control': 'private, no-cache' } }
       )
     }
 
@@ -54,13 +54,13 @@ export async function GET(): Promise<Response> {
         releaseNotes: release.body ?? '',
         deploymentMode,
       },
-      { headers: { 'Cache-Control': 'public, max-age=3600' } }
+      { headers: { 'Cache-Control': 'private, no-cache' } }
     )
   } catch {
     // Network error — fail gracefully
     return NextResponse.json(
       { updateAvailable: false, currentVersion: APP_VERSION },
-      { headers: { 'Cache-Control': 'public, max-age=600' } }
+      { headers: { 'Cache-Control': 'private, no-cache' } }
     )
   }
 }

@@ -219,7 +219,7 @@ export default function Home() {
       .catch(() => { markStep('auth') })
 
     // Check for available updates
-    fetch('/api/releases/check')
+    fetch('/api/releases/check', { cache: 'no-store' })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.updateAvailable) {
@@ -228,6 +228,8 @@ export default function Home() {
             releaseUrl: data.releaseUrl,
             releaseNotes: data.releaseNotes,
           })
+        } else {
+          setUpdateAvailable(null)
         }
       })
       .catch(() => {})
