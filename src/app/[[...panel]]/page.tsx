@@ -1,54 +1,12 @@
 'use client'
 
 import { createElement, useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { usePathname, useRouter } from 'next/navigation'
 import { NavRail } from '@/components/layout/nav-rail'
 import { HeaderBar } from '@/components/layout/header-bar'
 import { LiveFeed } from '@/components/layout/live-feed'
 import { Dashboard } from '@/components/dashboard/dashboard'
-import { LogViewerPanel } from '@/components/panels/log-viewer-panel'
-import { CronManagementPanel } from '@/components/panels/cron-management-panel'
-import { MemoryBrowserPanel } from '@/components/panels/memory-browser-panel'
-import { CostTrackerPanel } from '@/components/panels/cost-tracker-panel'
-import { TaskBoardPanel } from '@/components/panels/task-board-panel'
-import { ActivityFeedPanel } from '@/components/panels/activity-feed-panel'
-import { AgentSquadPanelPhase3 } from '@/components/panels/agent-squad-panel-phase3'
-import { AgentCommsPanel } from '@/components/panels/agent-comms-panel'
-import { StandupPanel } from '@/components/panels/standup-panel'
-import { OrchestrationBar } from '@/components/panels/orchestration-bar'
-import { NotificationsPanel } from '@/components/panels/notifications-panel'
-import { UserManagementPanel } from '@/components/panels/user-management-panel'
-import { AuditTrailPanel } from '@/components/panels/audit-trail-panel'
-import { WebhookPanel } from '@/components/panels/webhook-panel'
-import { SettingsPanel } from '@/components/panels/settings-panel'
-import { GatewayConfigPanel } from '@/components/panels/gateway-config-panel'
-import { IntegrationsPanel } from '@/components/panels/integrations-panel'
-import { AlertRulesPanel } from '@/components/panels/alert-rules-panel'
-import { MultiGatewayPanel } from '@/components/panels/multi-gateway-panel'
-import { SuperAdminPanel } from '@/components/panels/super-admin-panel'
-import { OfficePanel } from '@/components/panels/office-panel'
-import { GitHubSyncPanel } from '@/components/panels/github-sync-panel'
-import { SkillsPanel } from '@/components/panels/skills-panel'
-import { LocalAgentsDocPanel } from '@/components/panels/local-agents-doc-panel'
-import { ChannelsPanel } from '@/components/panels/channels-panel'
-import { DebugPanel } from '@/components/panels/debug-panel'
-import { SecurityAuditPanel } from '@/components/panels/security-audit-panel'
-import { NodesPanel } from '@/components/panels/nodes-panel'
-import { ExecApprovalPanel } from '@/components/panels/exec-approval-panel'
-import { ChatPagePanel } from '@/components/panels/chat-page-panel'
-import { MarketingPanel } from '@/components/panels/marketing-panel'
-import { AnalyticsPanel } from '@/components/panels/analytics-panel'
-import { TradingPanel } from '@/components/panels/trading-panel'
-import { OutreachPanel } from '@/components/panels/outreach-panel'
-import { VoicePanel } from '@/components/panels/voice-panel'
-import { LifeManagerPanel } from '@/components/panels/life-manager-panel'
-import { MeetingsPanel } from '@/components/panels/meetings-panel'
-import { MarketplacePanel } from '@/components/panels/marketplace-panel'
-import { HealthPanel } from '@/components/panels/health-panel'
-import { GsdPanel } from '@/components/panels/gsd-panel'
-import { CommunicationsPanel } from '@/components/panels/communications-panel'
-import { HealerPanel } from '@/components/panels/healer-panel'
-import { SalesAssistantPanel } from '@/components/panels/sales-assistant-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { getPluginPanel } from '@/lib/plugins'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -68,6 +26,54 @@ import { clearOnboardingDismissedThisSession, clearOnboardingReplayFromStart, ge
 import { Button } from '@/components/ui/button'
 import { SystemTicker } from '@/components/layout/system-ticker'
 import { useMissionControl } from '@/store'
+
+// ADR: Lazy-load all panels via next/dynamic to avoid bundling 40+ panels into initial JS.
+// Only the active panel's chunk downloads on navigation. Dashboard stays static (landing page).
+const panelLoader = () => <Loader variant="panel" />
+
+const LogViewerPanel = dynamic(() => import('@/components/panels/log-viewer-panel').then(m => ({ default: m.LogViewerPanel })), { loading: panelLoader })
+const CronManagementPanel = dynamic(() => import('@/components/panels/cron-management-panel').then(m => ({ default: m.CronManagementPanel })), { loading: panelLoader })
+const MemoryBrowserPanel = dynamic(() => import('@/components/panels/memory-browser-panel').then(m => ({ default: m.MemoryBrowserPanel })), { loading: panelLoader })
+const CostTrackerPanel = dynamic(() => import('@/components/panels/cost-tracker-panel').then(m => ({ default: m.CostTrackerPanel })), { loading: panelLoader })
+const TaskBoardPanel = dynamic(() => import('@/components/panels/task-board-panel').then(m => ({ default: m.TaskBoardPanel })), { loading: panelLoader })
+const ActivityFeedPanel = dynamic(() => import('@/components/panels/activity-feed-panel').then(m => ({ default: m.ActivityFeedPanel })), { loading: panelLoader })
+const AgentSquadPanelPhase3 = dynamic(() => import('@/components/panels/agent-squad-panel-phase3').then(m => ({ default: m.AgentSquadPanelPhase3 })), { loading: panelLoader })
+const AgentCommsPanel = dynamic(() => import('@/components/panels/agent-comms-panel').then(m => ({ default: m.AgentCommsPanel })), { loading: panelLoader })
+const StandupPanel = dynamic(() => import('@/components/panels/standup-panel').then(m => ({ default: m.StandupPanel })), { loading: panelLoader })
+const OrchestrationBar = dynamic(() => import('@/components/panels/orchestration-bar').then(m => ({ default: m.OrchestrationBar })), { loading: panelLoader })
+const NotificationsPanel = dynamic(() => import('@/components/panels/notifications-panel').then(m => ({ default: m.NotificationsPanel })), { loading: panelLoader })
+const UserManagementPanel = dynamic(() => import('@/components/panels/user-management-panel').then(m => ({ default: m.UserManagementPanel })), { loading: panelLoader })
+const AuditTrailPanel = dynamic(() => import('@/components/panels/audit-trail-panel').then(m => ({ default: m.AuditTrailPanel })), { loading: panelLoader })
+const WebhookPanel = dynamic(() => import('@/components/panels/webhook-panel').then(m => ({ default: m.WebhookPanel })), { loading: panelLoader })
+const SettingsPanel = dynamic(() => import('@/components/panels/settings-panel').then(m => ({ default: m.SettingsPanel })), { loading: panelLoader })
+const GatewayConfigPanel = dynamic(() => import('@/components/panels/gateway-config-panel').then(m => ({ default: m.GatewayConfigPanel })), { loading: panelLoader })
+const IntegrationsPanel = dynamic(() => import('@/components/panels/integrations-panel').then(m => ({ default: m.IntegrationsPanel })), { loading: panelLoader })
+const AlertRulesPanel = dynamic(() => import('@/components/panels/alert-rules-panel').then(m => ({ default: m.AlertRulesPanel })), { loading: panelLoader })
+const MultiGatewayPanel = dynamic(() => import('@/components/panels/multi-gateway-panel').then(m => ({ default: m.MultiGatewayPanel })), { loading: panelLoader })
+const SuperAdminPanel = dynamic(() => import('@/components/panels/super-admin-panel').then(m => ({ default: m.SuperAdminPanel })), { loading: panelLoader })
+const OfficePanel = dynamic(() => import('@/components/panels/office-panel').then(m => ({ default: m.OfficePanel })), { loading: panelLoader })
+const GitHubSyncPanel = dynamic(() => import('@/components/panels/github-sync-panel').then(m => ({ default: m.GitHubSyncPanel })), { loading: panelLoader })
+const SkillsPanel = dynamic(() => import('@/components/panels/skills-panel').then(m => ({ default: m.SkillsPanel })), { loading: panelLoader })
+const LocalAgentsDocPanel = dynamic(() => import('@/components/panels/local-agents-doc-panel').then(m => ({ default: m.LocalAgentsDocPanel })), { loading: panelLoader })
+const ChannelsPanel = dynamic(() => import('@/components/panels/channels-panel').then(m => ({ default: m.ChannelsPanel })), { loading: panelLoader })
+const DebugPanel = dynamic(() => import('@/components/panels/debug-panel').then(m => ({ default: m.DebugPanel })), { loading: panelLoader })
+const SecurityAuditPanel = dynamic(() => import('@/components/panels/security-audit-panel').then(m => ({ default: m.SecurityAuditPanel })), { loading: panelLoader })
+const NodesPanel = dynamic(() => import('@/components/panels/nodes-panel').then(m => ({ default: m.NodesPanel })), { loading: panelLoader })
+const ExecApprovalPanel = dynamic(() => import('@/components/panels/exec-approval-panel').then(m => ({ default: m.ExecApprovalPanel })), { loading: panelLoader })
+const ChatPagePanel = dynamic(() => import('@/components/panels/chat-page-panel').then(m => ({ default: m.ChatPagePanel })), { loading: panelLoader })
+const MarketingPanel = dynamic(() => import('@/components/panels/marketing-panel').then(m => ({ default: m.MarketingPanel })), { loading: panelLoader })
+const AnalyticsPanel = dynamic(() => import('@/components/panels/analytics-panel').then(m => ({ default: m.AnalyticsPanel })), { loading: panelLoader })
+const TradingPanel = dynamic(() => import('@/components/panels/trading-panel').then(m => ({ default: m.TradingPanel })), { loading: panelLoader })
+const OutreachPanel = dynamic(() => import('@/components/panels/outreach-panel').then(m => ({ default: m.OutreachPanel })), { loading: panelLoader })
+const VoicePanel = dynamic(() => import('@/components/panels/voice-panel').then(m => ({ default: m.VoicePanel })), { loading: panelLoader })
+const LifeManagerPanel = dynamic(() => import('@/components/panels/life-manager-panel').then(m => ({ default: m.LifeManagerPanel })), { loading: panelLoader })
+const MeetingsPanel = dynamic(() => import('@/components/panels/meetings-panel').then(m => ({ default: m.MeetingsPanel })), { loading: panelLoader })
+const MarketplacePanel = dynamic(() => import('@/components/panels/marketplace-panel').then(m => ({ default: m.MarketplacePanel })), { loading: panelLoader })
+const HealthPanel = dynamic(() => import('@/components/panels/health-panel').then(m => ({ default: m.HealthPanel })), { loading: panelLoader })
+const GsdPanel = dynamic(() => import('@/components/panels/gsd-panel').then(m => ({ default: m.GsdPanel })), { loading: panelLoader })
+const CommunicationsPanel = dynamic(() => import('@/components/panels/communications-panel').then(m => ({ default: m.CommunicationsPanel })), { loading: panelLoader })
+const HealerPanel = dynamic(() => import('@/components/panels/healer-panel').then(m => ({ default: m.HealerPanel })), { loading: panelLoader })
+const SalesAssistantPanel = dynamic(() => import('@/components/panels/sales-assistant-panel').then(m => ({ default: m.SalesAssistantPanel })), { loading: panelLoader })
 
 interface GatewaySummary {
   id: number
