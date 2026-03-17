@@ -100,6 +100,9 @@ export const config = {
     pipelineRuns: clampInt(Number(process.env.MC_RETAIN_PIPELINE_RUNS_DAYS || '90'), 0, 3650, 90),
     tokenUsage: clampInt(Number(process.env.MC_RETAIN_TOKEN_USAGE_DAYS || '90'), 0, 3650, 90),
     gatewaySessions: clampInt(Number(process.env.MC_RETAIN_GATEWAY_SESSIONS_DAYS || '90'), 0, 3650, 90),
+    executionTraces: clampInt(Number(process.env.MC_RETAIN_EXECUTION_TRACES_DAYS || '30'), 0, 3650, 30),
+    learnedPatterns: clampInt(Number(process.env.MC_RETAIN_LEARNED_PATTERNS_DAYS || '180'), 0, 3650, 180),
+    feedbackEntries: clampInt(Number(process.env.MC_RETAIN_FEEDBACK_DAYS || '90'), 0, 3650, 90),
   },
 }
 

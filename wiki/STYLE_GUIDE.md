@@ -56,11 +56,11 @@ Key principles:
 <div class="bg-card text-foreground border-void-cyan">
 ```
 
-**Inline styles** (ReactFlow, recharts):
+**Inline styles** (recharts, custom SVG):
 ```ts
-import { hsl, voidAccents } from '@/styles/design-tokens'
-const stroke = hsl(voidAccents.cyan)        // "hsl(187 82% 53%)"
-const dim = hsl(voidAccents.cyan, 0.4)      // "hsl(187 82% 53% / 0.4)"
+// Use Tailwind CSS variables directly for dynamic color values
+const stroke = 'hsl(187 82% 53%)'        // void-cyan
+const dim = 'hsl(187 82% 53% / 0.4)'    // void-cyan at 40% opacity
 ```
 
 ---

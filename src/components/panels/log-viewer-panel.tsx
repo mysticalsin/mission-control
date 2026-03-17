@@ -84,7 +84,7 @@ export function LogViewerPanel() {
           // Add new logs for tail mode - prepend to existing logs
           let newLogsAdded = 0
           const existingIds = new Set((currentLogs || []).map((l: any) => l?.id).filter(Boolean))
-          data.logs.reverse().forEach((entry: any) => {
+          data.logs.slice().reverse().forEach((entry: any) => {
             if (existingIds.has(entry?.id)) return
             addLog(entry)
             newLogsAdded++
@@ -94,7 +94,7 @@ export function LogViewerPanel() {
           // Replace logs for initial load or refresh
           log.debug(`Clearing existing logs and loading ${data.logs.length} logs`)
           clearLogs() // Clear existing logs
-          data.logs.reverse().forEach((entry: any) => {
+          data.logs.slice().reverse().forEach((entry: any) => {
             addLog(entry)
           })
           log.debug(`Successfully added ${data.logs.length} logs to store`)

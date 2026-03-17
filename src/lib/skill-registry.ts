@@ -220,8 +220,8 @@ async function fetchAwesomeIndex(): Promise<RegistrySkill[]> {
     const skills = parseAwesomeReadme(markdown)
     awesomeCache = { skills, fetchedAt: now }
     return skills
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Awesome OpenClaw fetch error')
+  } catch (err: unknown) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Awesome OpenClaw fetch error')
     if (awesomeCache) return awesomeCache.skills // stale fallback
     return []
   }
@@ -272,25 +272,25 @@ async function searchClawdHub(query: string): Promise<RegistrySearchResult> {
         continue
       }
 
-      const data = await res.json() as any
-      const rows = data?.results || data?.skills || []
-      const skills: RegistrySkill[] = rows.map((s: any) => ({
-        slug: s.slug || s.id || s.name,
-        name: s.displayName || s.name || s.slug,
-        description: s.summary || s.description || '',
-        author: s.author || s.owner || 'unknown',
-        version: s.version || s.latest_version || 'latest',
+      const data = await res.json() as Record<string, unknown>
+      const rows = (data?.results || data?.skills || []) as Array<Record<string, unknown>>
+      const skills: RegistrySkill[] = rows.map((s) => ({
+        slug: String(s.slug || s.id || s.name || ''),
+        name: String(s.displayName || s.name || s.slug || ''),
+        description: String(s.summary || s.description || ''),
+        author: String(s.author || s.owner || 'unknown'),
+        version: String(s.version || s.latest_version || 'latest'),
         source: 'clawhub' as const,
-        installCount: s.installs || s.install_count,
-        tags: s.tags,
-        hash: s.hash || s.sha256,
+        installCount: typeof s.installs === 'number' ? s.installs : typeof s.install_count === 'number' ? s.install_count : undefined,
+        tags: Array.isArray(s.tags) ? s.tags as string[] : undefined,
+        hash: typeof s.hash === 'string' ? s.hash : typeof s.sha256 === 'string' ? s.sha256 : undefined,
       }))
 
       if (skills.length > 0) {
-        return { skills, total: data?.total || skills.length, source: 'clawhub' }
+        return { skills, total: typeof data?.total === 'number' ? data.total : skills.length, source: 'clawhub' }
       }
-    } catch (err: any) {
-      logger.warn({ err: err.message, url }, 'ClawdHub search error')
+    } catch (err: unknown) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err), url }, 'ClawdHub search error')
     }
   }
 
@@ -313,29 +313,29 @@ async function searchSkillsSh(query: string): Promise<RegistrySearchResult> {
         continue
       }
 
-      const data = await res.json() as any
-      const rows = data?.skills || data?.results || []
-      const skills: RegistrySkill[] = rows.map((s: any) => {
-        const source = typeof s.source === 'string' ? s.source : 'unknown'
-        const slug = s.slug || s.id || (source && s.skillId ? `${source}/${s.skillId}` : s.name)
+      const data = await res.json() as Record<string, unknown>
+      const rows = (data?.skills || data?.results || []) as Array<Record<string, unknown>>
+      const skills: RegistrySkill[] = rows.map((s) => {
+        const src = typeof s.source === 'string' ? s.source : 'unknown'
+        const slug = String(s.slug || s.id || (src && s.skillId ? `${src}/${s.skillId}` : s.name) || '')
         return {
           slug,
-          name: s.name || s.skillId || s.slug || 'unnamed-skill',
-          description: s.description || s.summary || '',
-          author: s.owner || s.author || (source.includes('/') ? source.split('/')[0] : source),
-          version: s.version || 'latest',
+          name: String(s.name || s.skillId || s.slug || 'unnamed-skill'),
+          description: String(s.description || s.summary || ''),
+          author: String(s.owner || s.author || (src.includes('/') ? src.split('/')[0] : src)),
+          version: String(s.version || 'latest'),
           source: 'skills-sh' as const,
-          installCount: s.installs || s.install_count,
-          tags: s.tags,
-          url: s.url,
+          installCount: typeof s.installs === 'number' ? s.installs : typeof s.install_count === 'number' ? s.install_count : undefined,
+          tags: Array.isArray(s.tags) ? s.tags as string[] : undefined,
+          url: typeof s.url === 'string' ? s.url : undefined,
         }
       })
 
       if (skills.length > 0) {
-        return { skills, total: data?.total || data?.count || skills.length, source: 'skills-sh' }
+        return { skills, total: typeof data?.total === 'number' ? data.total : typeof data?.count === 'number' ? data.count : skills.length, source: 'skills-sh' }
       }
-    } catch (err: any) {
-      logger.warn({ err: err.message, url }, 'skills.sh search error')
+    } catch (err: unknown) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err), url }, 'skills.sh search error')
     }
   }
 
@@ -380,8 +380,8 @@ async function fetchClawdHubSkill(slug: string): Promise<{ content: string; hash
   const url = `${CLAWHUB_API}/skills/${encodeURIComponent(slug)}/content`
   const res = await fetchWithTimeout(url)
   if (!res.ok) throw new Error(`ClawdHub fetch failed (${res.status})`)
-  const data = await res.json() as any
-  return { content: data.content || data.skill_md || '', hash: data.hash || data.sha256 }
+  const data = await res.json() as Record<string, unknown>
+  return { content: String(data.content || data.skill_md || ''), hash: typeof data.hash === 'string' ? data.hash : typeof data.sha256 === 'string' ? data.sha256 : undefined }
 }
 
 async function fetchSkillsShSkill(slug: string): Promise<{ content: string }> {
@@ -417,8 +417,8 @@ export async function installFromRegistry(req: InstallRequest): Promise<InstallR
       const result = await fetchSkillsShSkill(req.slug)
       content = result.content
     }
-  } catch (err: any) {
-    return { ok: false, name, path: skillDir, message: `Fetch failed: ${err.message}` }
+  } catch (err: unknown) {
+    return { ok: false, name, path: skillDir, message: `Fetch failed: ${err instanceof Error ? err.message : String(err)}` }
   }
 
   if (!content.trim()) {
@@ -454,8 +454,8 @@ export async function installFromRegistry(req: InstallRequest): Promise<InstallR
   try {
     await mkdir(skillDir, { recursive: true })
     await writeFile(skillDocPath, content, 'utf8')
-  } catch (err: any) {
-    return { ok: false, name, path: skillDir, message: `Write failed: ${err.message}` }
+  } catch (err: unknown) {
+    return { ok: false, name, path: skillDir, message: `Write failed: ${err instanceof Error ? err.message : String(err)}` }
   }
 
   // Upsert into DB
@@ -490,7 +490,7 @@ export async function installFromRegistry(req: InstallRequest): Promise<InstallR
       now,
       now
     )
-  } catch (err: any) {
+  } catch (err: unknown) {
     logger.warn({ err }, 'Failed to upsert installed skill into DB')
   }
 

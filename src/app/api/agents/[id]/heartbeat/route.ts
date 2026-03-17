@@ -32,23 +32,23 @@ export async function GET(
     let agent: any;
     if (isNaN(Number(agentId))) {
       // Lookup by name
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId);
+      agent = db.prepare('SELECT id, name, status FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId);
     } else {
       // Lookup by ID
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId);
+      agent = db.prepare('SELECT id, name, status FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId);
     }
-    
+
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
-    
+
     const workItems: any[] = [];
     const now = Math.floor(Date.now() / 1000);
     const fourHoursAgo = now - (4 * 60 * 60); // Check last 4 hours
-    
+
     // 1. Check for @mentions in recent comments
     const mentions = db.prepare(`
-      SELECT c.*, t.title as task_title 
+      SELECT c.id, c.author, c.content, c.created_at, t.title as task_title 
       FROM comments c
       JOIN tasks t ON c.task_id = t.id
       WHERE c.mentions LIKE ?
@@ -75,7 +75,7 @@ export async function GET(
     
     // 2. Check for assigned tasks
     const assignedTasks = db.prepare(`
-      SELECT * FROM tasks 
+      SELECT id, title, status, priority, due_date, metadata FROM tasks
       WHERE assigned_to = ?
       AND workspace_id = ?
       AND status IN ('assigned', 'in_progress')
@@ -117,7 +117,7 @@ export async function GET(
     
     // 4. Check for urgent activities that might need attention
     const urgentActivities = db.prepare(`
-      SELECT * FROM activities 
+      SELECT id, type, description, created_at FROM activities
       WHERE type IN ('task_created', 'task_assigned', 'high_priority_alert')
       AND workspace_id = ?
       AND created_at > ?
@@ -220,9 +220,9 @@ export async function POST(
     const agentId = resolvedParams.id;
     let agent: any;
     if (isNaN(Number(agentId))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId);
+      agent = db.prepare('SELECT id, name FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId);
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId);
+      agent = db.prepare('SELECT id, name FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId);
     }
 
     if (agent) {

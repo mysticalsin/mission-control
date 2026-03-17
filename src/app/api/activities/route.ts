@@ -45,7 +45,7 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
     const since = searchParams.get('since'); // Unix timestamp for real-time updates
     
     // Build dynamic query
-    let query = 'SELECT * FROM activities WHERE workspace_id = ?';
+    let query = 'SELECT id, type, entity_type, entity_id, actor, description, data, created_at FROM activities WHERE workspace_id = ?';
     const params: any[] = [workspaceId];
     
     if (type) {

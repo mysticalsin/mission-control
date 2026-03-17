@@ -1,20 +1,38 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { authenticateUser, createSession } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
 import { loginLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
-export async function POST(request: Request) {
+/** Zod schema for login request body — validates and sanitizes auth input */
+const loginSchema = z.object({
+  username: z.string().min(1, 'Username is required').max(128, 'Username too long').trim(),
+  password: z.string().min(1, 'Password is required').max(256, 'Password too long'),
+})
+
+export async function POST(request: Request): Promise<NextResponse> {
   try {
     const rateCheck = loginLimiter(request)
     if (rateCheck) return rateCheck
 
-    const { username, password } = await request.json()
-
-    if (!username || !password) {
-      return NextResponse.json({ error: 'Username and password are required' }, { status: 400 })
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
+
+    const parsed = loginSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? 'Invalid input' },
+        { status: 400 },
+      )
+    }
+
+    const { username, password } = parsed.data
 
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
     const userAgent = request.headers.get('user-agent') || undefined

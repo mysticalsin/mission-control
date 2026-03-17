@@ -28,7 +28,7 @@ export async function POST(
 
     const db = getDatabase()
     const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, title FROM tasks WHERE id = ? AND workspace_id = ?')
       .get(taskId, workspaceId) as any
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })

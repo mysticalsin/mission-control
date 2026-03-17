@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
         gateway_version: gatewayVersion,
         compatibility_warning: compatibilityWarning,
       })
-    } catch (err: any) {
+    } catch (err: unknown) {
       results.push({
         id: gw.id,
         name: gw.name,
@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
         latency: null,
         agents: [],
         sessions_count: 0,
-        error: err.name === "AbortError" ? "timeout" : (err.message || "connection failed"),
+        error: err instanceof Error && err.name === "AbortError" ? "timeout" : (err instanceof Error ? err.message : "connection failed"),
       })
     }
   }

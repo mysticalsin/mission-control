@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
+import { readdir, readFile, stat, access } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { getDatabase } from './db'
@@ -73,27 +73,36 @@ function getSkillRoots(): Array<{ source: string; path: string }> {
 // Disk scanner
 // ---------------------------------------------------------------------------
 
-function scanDiskSkills(): DiskSkill[] {
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await access(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function scanDiskSkills(): Promise<DiskSkill[]> {
   const skills: DiskSkill[] = []
   for (const root of getSkillRoots()) {
-    if (!existsSync(root.path)) continue
+    if (!(await pathExists(root.path))) continue
     let entries: string[]
     try {
-      entries = readdirSync(root.path)
+      entries = await readdir(root.path)
     } catch {
       continue
     }
     for (const entry of entries) {
       const skillPath = join(root.path, entry)
       try {
-        if (!statSync(skillPath).isDirectory()) continue
+        if (!(await stat(skillPath)).isDirectory()) continue
       } catch {
         continue
       }
       const skillDoc = join(skillPath, 'SKILL.md')
-      if (!existsSync(skillDoc)) continue
+      if (!(await pathExists(skillDoc))) continue
       try {
-        const content = readFileSync(skillDoc, 'utf8')
+        const content = await readFile(skillDoc, 'utf8')
         skills.push({
           name: entry,
           source: root.source,
@@ -116,7 +125,7 @@ function scanDiskSkills(): DiskSkill[] {
 export async function syncSkillsFromDisk(): Promise<{ ok: boolean; message: string }> {
   try {
     const db = getDatabase()
-    const diskSkills = scanDiskSkills()
+    const diskSkills = await scanDiskSkills()
     const now = new Date().toISOString()
 
     // Build a lookup of what's on disk
@@ -128,7 +137,7 @@ export async function syncSkillsFromDisk(): Promise<{ ok: boolean; message: stri
     // Fetch current DB rows (only local sources, not registry-installed via slug)
     const localSources = ['user-agents', 'user-codex', 'project-agents', 'project-codex', 'openclaw']
     const dbRows = db.prepare(
-      `SELECT * FROM skills WHERE source IN (${localSources.map(() => '?').join(',')})`
+      `SELECT id, name, source, path, description, content_hash, registry_slug, registry_version, security_status, installed_at, updated_at FROM skills WHERE source IN (${localSources.map(() => '?').join(',')})`
     ).all(...localSources) as SkillRow[]
 
     const dbMap = new Map<string, SkillRow>()
@@ -179,8 +188,9 @@ export async function syncSkillsFromDisk(): Promise<{ ok: boolean; message: stri
       logger.info(msg)
     }
     return { ok: true, message: msg }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
     logger.error({ err }, 'Skill sync failed')
-    return { ok: false, message: `Skill sync failed: ${err.message}` }
+    return { ok: false, message: `Skill sync failed: ${message}` }
   }
 }

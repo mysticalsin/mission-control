@@ -230,8 +230,9 @@ export async function syncAgentsFromConfig(actor: string = 'system'): Promise<Sy
   let agents: OpenClawAgent[]
   try {
     agents = await readOpenClawAgents()
-  } catch (err: any) {
-    return { synced: 0, created: 0, updated: 0, agents: [], error: err.message }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { synced: 0, created: 0, updated: 0, agents: [], error: message }
   }
 
   if (agents.length === 0) {

@@ -13,7 +13,8 @@ export const MODEL_CATALOG: ModelConfig[] = [
   { alias: 'deepseek', name: 'ollama/deepseek-r1:14b', provider: 'ollama', description: 'Local reasoning (free)', costPer1k: 0.0 },
   { alias: 'groq-fast', name: 'groq/llama-3.1-8b-instant', provider: 'groq', description: '840 tok/s, ultra fast', costPer1k: 0.05 },
   { alias: 'groq', name: 'groq/llama-3.3-70b-versatile', provider: 'groq', description: 'Fast + quality balance', costPer1k: 0.59 },
-  { alias: 'kimi', name: 'moonshot/kimi-k2.5', provider: 'moonshot', description: 'Alternative provider', costPer1k: 1.0 },
+  { alias: 'kimi', name: 'moonshot/kimi-k2.5', provider: 'moonshot', description: 'Kimi K2.5 — fast, cost-effective', costPer1k: 1.0 },
+  { alias: 'kimi-code', name: 'kimi-coding/k2p5', provider: 'kimi-coding', description: 'Kimi for Coding — reasoning, primary model', costPer1k: 0.0 },
   { alias: 'minimax', name: 'minimax/minimax-m2.1', provider: 'minimax', description: 'Cost-effective (1/10th price), strong coding', costPer1k: 0.3 },
 ]
 

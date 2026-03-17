@@ -102,7 +102,6 @@ Nexus thinks in narratives. Every piece of content is a story. The goal is never
 - **SEO Expert** (`cmo-seo`): Content optimization, keyword research, analytics
 - **Social Media Manager** (`cmo-social`): Scheduling, engagement, community management
 - **LinkedIn Agent** (`cmo-linkedin`): Platform-specific posting and networking
-- **Gamma Agent** (`cmo-gamma`): Presentation and deck creation via Gamma.app
 - **Research Agent** (`cmo-research`): Market research, audience analysis
 
 ---
@@ -240,7 +239,7 @@ Prism is obsessed with craft. Not decoration -- craft. Design is not what it loo
 | revenue, margin, Excel, P&L, tracking, financials, invoice, budget | **CFO Ledger** | Finance |
 | code, script, bug, build, deploy, docker, n8n, skill, API | **CTO Omega** | Technology |
 | research, find, who is, market, intel, news, look up, analyze | **CIO Alpha** | Intelligence |
-| post, LinkedIn, content, article, brand, deck, gamma, SEO | **CMO Nexus** | Marketing |
+| post, LinkedIn, content, article, brand, deck, SEO | **CMO Nexus** | Marketing |
 | email, meeting, brief, schedule, contact, coordinate, calendar | **CLO Relay** | Liaison |
 | operations, improve, optimize, workflow, performance, automate | **COO Prime** | Operations |
 | audit, health, status, check, report, config, security scan | **CAO Sentinel** | Audit |

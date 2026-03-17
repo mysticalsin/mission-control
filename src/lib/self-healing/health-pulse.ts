@@ -201,7 +201,7 @@ export function getLatestHealthChecks(): ReadonlyArray<HealthCheckResult> {
   try {
     const db = getDatabase()
     const rows = db.prepare(`
-      SELECT h.*
+      SELECT h.id, h.service_name, h.status, h.response_time_ms, h.error_message, h.metadata
       FROM health_checks h
       INNER JOIN (
         SELECT service_name, MAX(id) as max_id

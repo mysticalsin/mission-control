@@ -71,9 +71,29 @@ const MeetingsPanel = dynamic(() => import('@/components/panels/meetings-panel')
 const MarketplacePanel = dynamic(() => import('@/components/panels/marketplace-panel').then(m => ({ default: m.MarketplacePanel })), { loading: panelLoader })
 const HealthPanel = dynamic(() => import('@/components/panels/health-panel').then(m => ({ default: m.HealthPanel })), { loading: panelLoader })
 const GsdPanel = dynamic(() => import('@/components/panels/gsd-panel').then(m => ({ default: m.GsdPanel })), { loading: panelLoader })
-const CommunicationsPanel = dynamic(() => import('@/components/panels/communications-panel').then(m => ({ default: m.CommunicationsPanel })), { loading: panelLoader })
 const HealerPanel = dynamic(() => import('@/components/panels/healer-panel').then(m => ({ default: m.HealerPanel })), { loading: panelLoader })
 const SalesAssistantPanel = dynamic(() => import('@/components/panels/sales-assistant-panel').then(m => ({ default: m.SalesAssistantPanel })), { loading: panelLoader })
+
+// -- Jarvis integration panels --
+const VaultPanel = dynamic(() => import('@/components/panels/vault-panel').then(m => ({ default: m.VaultPanel })), { loading: panelLoader })
+const NeuralPanel = dynamic(() => import('@/components/panels/neural-panel').then(m => ({ default: m.NeuralPanel })), { loading: panelLoader })
+const VisionPanel = dynamic(() => import('@/components/panels/vision-panel').then(m => ({ default: m.VisionPanel })), { loading: panelLoader })
+const KnowledgeRagPanel = dynamic(() => import('@/components/panels/knowledge-rag-panel').then(m => ({ default: m.KnowledgeRagPanel })), { loading: panelLoader })
+const SttPanel = dynamic(() => import('@/components/panels/stt-panel').then(m => ({ default: m.SttPanel })), { loading: panelLoader })
+const TotalRecallPanel = dynamic(() => import('@/components/panels/total-recall-panel').then(m => ({ default: m.TotalRecallPanel })), { loading: panelLoader })
+const WorldViewPanel = dynamic(() => import('@/components/panels/world-view-panel').then(m => ({ default: m.WorldViewPanel })), { loading: panelLoader })
+const NotebookPanel = dynamic(() => import('@/components/panels/notebook-panel').then(m => ({ default: m.NotebookPanel })), { loading: panelLoader })
+const DeepResearchPanel = dynamic(() => import('@/components/panels/deep-research-panel').then(m => ({ default: m.DeepResearchPanel })), { loading: panelLoader })
+const OmegaPanel = dynamic(() => import('@/components/panels/omega-panel').then(m => ({ default: m.OmegaPanel })), { loading: panelLoader })
+const VideoIntelPanel = dynamic(() => import('@/components/panels/video-intel-panel').then(m => ({ default: m.VideoIntelPanel })), { loading: panelLoader })
+const VideoRenderPanel = dynamic(() => import('@/components/panels/video-render-panel').then(m => ({ default: m.VideoRenderPanel })), { loading: panelLoader })
+const ScrapingPanel = dynamic(() => import('@/components/panels/scraping-panel').then(m => ({ default: m.ScrapingPanel })), { loading: panelLoader })
+const CalendarPanel = dynamic(() => import('@/components/panels/calendar-panel').then(m => ({ default: m.CalendarPanel })), { loading: panelLoader })
+const EvolutionPanel = dynamic(() => import('@/components/panels/evolution-panel').then(m => ({ default: m.EvolutionPanel })), { loading: panelLoader })
+const MediaPanel = dynamic(() => import('@/components/panels/media-panel').then(m => ({ default: m.MediaPanel })), { loading: panelLoader })
+const NanobananaPanel = dynamic(() => import('@/components/panels/nanobanana-panel').then(m => ({ default: m.NanobananaPanel })), { loading: panelLoader })
+const WebPanel = dynamic(() => import('@/components/panels/web-panel').then(m => ({ default: m.WebPanel })), { loading: panelLoader })
+
 
 interface GatewaySummary {
   id: number
@@ -177,7 +197,7 @@ export default function Home() {
       return
     }
 
-    const connectWithEnvFallback = () => {
+    const connectWithEnvFallback = async () => {
       const explicitWsUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || ''
       const gatewayPort = process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789'
       const gatewayHost = process.env.NEXT_PUBLIC_GATEWAY_HOST || window.location.hostname
@@ -185,7 +205,23 @@ export default function Home() {
         process.env.NEXT_PUBLIC_GATEWAY_PROTOCOL ||
         (window.location.protocol === 'https:' ? 'wss' : 'ws')
       const wsUrl = explicitWsUrl || `${gatewayProto}://${gatewayHost}:${gatewayPort}`
-      connect(wsUrl)
+
+      // Fetch gateway token from API so the handshake has auth credentials
+      let token = ''
+      try {
+        const res = await fetch('/api/gateways/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: 1 }),
+        })
+        if (res.ok) {
+          const payload = await res.json().catch(() => ({}))
+          token = typeof payload?.token === 'string' ? payload.token : ''
+        }
+      } catch {
+        // Non-fatal — connect without token as last resort
+      }
+      connect(wsUrl, token)
     }
 
     const connectWithPrimaryGateway = async (): Promise<{ attempted: boolean; connected: boolean }> => {
@@ -293,16 +329,16 @@ export default function Home() {
 
         const primaryConnect = await connectWithPrimaryGateway()
         if (!primaryConnect.connected && !primaryConnect.attempted) {
-          connectWithEnvFallback()
+          await connectWithEnvFallback()
         }
         markStep('connect')
       })
-      .catch(() => {
+      .catch(async () => {
         // If capabilities check fails, still try to connect
         setCapabilitiesChecked(true)
         markStep('capabilities')
         markStep('connect')
-        connectWithEnvFallback()
+        await connectWithEnvFallback()
       })
 
     // Check onboarding state
@@ -590,12 +626,47 @@ function ContentRouter({ tab }: { tab: string }) {
       return <HealthPanel />
     case 'gsd':
       return <GsdPanel />
-    case 'communications':
-      return <CommunicationsPanel />
     case 'healer':
       return <HealerPanel />
     case 'sales-assistant':
       return <SalesAssistantPanel />
+    // -- Jarvis integration panels --
+    case 'vault':
+      return <VaultPanel />
+    case 'neural':
+      return <NeuralPanel />
+    case 'vision':
+      return <VisionPanel />
+    case 'knowledge-rag':
+      return <KnowledgeRagPanel />
+    case 'stt':
+      return <SttPanel />
+    case 'total-recall':
+      return <TotalRecallPanel />
+    case 'world-view':
+      return <WorldViewPanel />
+    case 'notebook':
+      return <NotebookPanel />
+    case 'deep-research':
+      return <DeepResearchPanel />
+    case 'omega':
+      return <OmegaPanel />
+    case 'video-intel':
+      return <VideoIntelPanel />
+    case 'video-render':
+      return <VideoRenderPanel />
+    case 'scraping':
+      return <ScrapingPanel />
+    case 'calendar':
+      return <CalendarPanel />
+    case 'evolution':
+      return <EvolutionPanel />
+    case 'media':
+      return <MediaPanel />
+    case 'nanobanana':
+      return <NanobananaPanel />
+    case 'web':
+      return <WebPanel />
     default: {
       return renderPluginPanel(tab)
     }

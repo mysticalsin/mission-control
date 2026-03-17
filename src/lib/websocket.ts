@@ -13,6 +13,7 @@ import {
 } from '@/lib/device-identity'
 import { APP_VERSION } from '@/lib/version'
 import { createClientLogger } from '@/lib/client-logger'
+import { z } from 'zod'
 import {
   ConnectErrorDetailCodes,
   readErrorDetailCode,
@@ -24,26 +25,37 @@ const log = createClientLogger('WebSocket')
 
 // Gateway protocol version (v3 required by OpenClaw 2026.x)
 const PROTOCOL_VERSION = 3
-const DEFAULT_GATEWAY_CLIENT_ID = process.env.NEXT_PUBLIC_GATEWAY_CLIENT_ID || 'openclaw-control-ui'
+// Gateway requires this exact client ID — do not override via env var
+const DEFAULT_GATEWAY_CLIENT_ID = 'openclaw-control-ui'
 
 // Heartbeat configuration
 const PING_INTERVAL_MS = 30_000
 const MAX_MISSED_PONGS = 3
 const ERROR_LOG_DEDUPE_MS = 5_000
 
-// Gateway message types
-interface GatewayFrame {
-  type: 'event' | 'req' | 'res'
-  event?: string
-  method?: string
-  id?: string
-  payload?: any
-  ok?: boolean
-  result?: any
-  error?: { message?: string; code?: string; details?: any; [key: string]: any }
-  params?: any
-  seq?: number
-}
+// Safety limit: reject WebSocket messages larger than 1 MB to prevent DoS via JSON.parse
+const MAX_WS_MESSAGE_BYTES = 1_048_576
+
+// Gateway frame schema — validates the critical `type` discriminator at runtime
+// instead of trusting an unsafe `as` cast on untrusted WebSocket data
+const gatewayFrameSchema = z.object({
+  type: z.enum(['event', 'req', 'res']),
+  event: z.string().optional(),
+  method: z.string().optional(),
+  id: z.string().optional(),
+  payload: z.any().optional(),
+  ok: z.boolean().optional(),
+  result: z.any().optional(),
+  error: z.object({
+    message: z.string().optional(),
+    code: z.string().optional(),
+    details: z.any().optional(),
+  }).passthrough().optional(),
+  params: z.any().optional(),
+  seq: z.number().optional(),
+})
+
+type GatewayFrame = z.infer<typeof gatewayFrameSchema>
 
 interface GatewayMessage {
   type: 'session_update' | 'log' | 'event' | 'status' | 'spawn_result' | 'cron_status' | 'pong'
@@ -711,8 +723,19 @@ export function useWebSocket() {
 
       ws.onmessage = (event) => {
         try {
-          const frame = JSON.parse(event.data) as GatewayFrame
-          handleGatewayFrame(frame, ws)
+          // Guard against oversized messages before attempting JSON.parse (DoS prevention)
+          const raw = typeof event.data === 'string' ? event.data : ''
+          if (raw.length > MAX_WS_MESSAGE_BYTES) {
+            log.warn(`Dropped oversized WebSocket message (${raw.length} bytes, limit ${MAX_WS_MESSAGE_BYTES})`)
+            return
+          }
+
+          const parsed = gatewayFrameSchema.safeParse(JSON.parse(raw))
+          if (!parsed.success) {
+            log.warn('Dropped malformed gateway frame:', parsed.error.message)
+            return
+          }
+          handleGatewayFrame(parsed.data, ws)
         } catch (error) {
           log.error('Failed to parse WebSocket message:', error)
           addLog({
@@ -720,7 +743,7 @@ export function useWebSocket() {
             timestamp: Date.now(),
             level: 'debug',
             source: 'websocket',
-            message: `Raw message: ${event.data}`
+            message: 'Unparseable WebSocket message received'
           })
         }
       }

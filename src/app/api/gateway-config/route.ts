@@ -61,9 +61,10 @@ export async function GET(request: NextRequest) {
       raw_size: raw.length,
       hash,
     })
-  } catch (err: any) {
-    if (err.code === 'ENOENT') {
-      return NextResponse.json({ error: 'Config file not found', path: configPath }, { status: 404 })
+  } catch (err: unknown) {
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // Don't leak filesystem path in API response
+      return NextResponse.json({ error: 'Config file not found' }, { status: 404 })
     }
     logger.error({ err }, 'Failed to read gateway config')
     return NextResponse.json({ error: 'Failed to read config. Check server logs for details.' }, { status: 500 })
@@ -87,10 +88,10 @@ async function getSchema(): Promise<NextResponse> {
     }
     const data = await res.json()
     return NextResponse.json(data)
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
     return NextResponse.json(
-      { error: err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
+      { error: err instanceof Error && err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
       { status: 502 },
     )
   }
@@ -190,7 +191,7 @@ export async function PUT(request: NextRequest) {
       count: appliedKeys.length,
       hash: computeHash(newRaw),
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     logger.error({ err }, 'Failed to update gateway config')
     return NextResponse.json({ error: 'Failed to update config. Check server logs for details.' }, { status: 500 })
   }
@@ -225,10 +226,10 @@ async function applyConfig(request: NextRequest, auth: any): Promise<NextRespons
     }
     const data = await res.json().catch(() => ({}))
     return NextResponse.json({ ok: true, ...data })
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
     return NextResponse.json(
-      { error: err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
+      { error: err instanceof Error && err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
       { status: 502 },
     )
   }
@@ -263,18 +264,26 @@ async function updateSystem(request: NextRequest, auth: any): Promise<NextRespon
     }
     const data = await res.json().catch(() => ({}))
     return NextResponse.json({ ok: true, ...data })
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
     return NextResponse.json(
-      { error: err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
+      { error: err instanceof Error && err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
       { status: 502 },
     )
   }
 }
 
+/** Dangerous property keys that could lead to prototype pollution */
+const POISONED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 /** Set a value in a nested object using dot-notation path */
-function setNestedValue(obj: any, path: string, value: any) {
+function setNestedValue(obj: any, path: string, value: any): void {
   const keys = path.split('.')
+  for (const key of keys) {
+    if (POISONED_KEYS.has(key)) {
+      throw new Error(`Illegal property key: ${key}`)
+    }
+  }
   let current = obj
   for (let i = 0; i < keys.length - 1; i++) {
     if (current[keys[i]] === undefined) current[keys[i]] = {}

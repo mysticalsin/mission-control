@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   switch (type) {
     case 'audit': {
       // audit_log is instance-global (no workspace_id column); export is admin-only so this is safe
-      rows = db.prepare(`SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
+      rows = db.prepare(`SELECT id, action, actor, actor_id, target_type, target_id, detail, ip_address, user_agent, created_at FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
       headers = ['id', 'action', 'actor', 'actor_id', 'target_type', 'target_id', 'detail', 'ip_address', 'user_agent', 'created_at']
       filename = 'audit-log'
       break
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       conditions.unshift('workspace_id = ?')
       params.unshift(workspaceId)
       const scopedWhere = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-      rows = db.prepare(`SELECT * FROM tasks ${scopedWhere} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
+      rows = db.prepare(`SELECT id, title, description, status, priority, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, tags FROM tasks ${scopedWhere} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
       headers = ['id', 'title', 'description', 'status', 'priority', 'assigned_to', 'created_by', 'created_at', 'updated_at', 'due_date', 'estimated_hours', 'actual_hours', 'tags']
       filename = 'tasks'
       break
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       conditions.unshift('workspace_id = ?')
       params.unshift(workspaceId)
       const scopedWhere = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-      rows = db.prepare(`SELECT * FROM activities ${scopedWhere} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
+      rows = db.prepare(`SELECT id, type, entity_type, entity_id, actor, description, data, created_at FROM activities ${scopedWhere} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
       headers = ['id', 'type', 'entity_type', 'entity_id', 'actor', 'description', 'data', 'created_at']
       filename = 'activities'
       break

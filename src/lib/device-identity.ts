@@ -19,6 +19,10 @@ const STORAGE_DEVICE_ID = 'mc-device-id'
 const STORAGE_PUBKEY = 'mc-device-pubkey'
 const STORAGE_PRIVKEY = 'mc-device-privkey'
 const STORAGE_DEVICE_TOKEN = 'mc-device-token'
+const STORAGE_DEVICE_TOKEN_TS = 'mc-device-token-ts'
+
+/** Device token TTL — 24 hours in milliseconds */
+const DEVICE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000
 
 export interface DeviceIdentity {
   deviceId: string
@@ -130,14 +134,32 @@ export async function signPayload(
   }
 }
 
-/** Reads cached device token from localStorage (returned by gateway on successful connect). */
+/** Reads cached device token from localStorage (returned by gateway on successful connect). Returns null if expired (24h TTL). */
 export function getCachedDeviceToken(): string | null {
-  return localStorage.getItem(STORAGE_DEVICE_TOKEN)
+  const token = localStorage.getItem(STORAGE_DEVICE_TOKEN)
+  if (!token) return null
+
+  const storedTs = localStorage.getItem(STORAGE_DEVICE_TOKEN_TS)
+  if (!storedTs) {
+    // No timestamp — legacy token from before TTL was added; treat as expired
+    localStorage.removeItem(STORAGE_DEVICE_TOKEN)
+    return null
+  }
+
+  const cachedAt = Number(storedTs)
+  if (Number.isNaN(cachedAt) || Date.now() - cachedAt > DEVICE_TOKEN_TTL_MS) {
+    localStorage.removeItem(STORAGE_DEVICE_TOKEN)
+    localStorage.removeItem(STORAGE_DEVICE_TOKEN_TS)
+    return null
+  }
+
+  return token
 }
 
-/** Caches the device token returned by the gateway after successful connect. */
+/** Caches the device token returned by the gateway after successful connect (24h TTL). */
 export function cacheDeviceToken(token: string): void {
   localStorage.setItem(STORAGE_DEVICE_TOKEN, token)
+  localStorage.setItem(STORAGE_DEVICE_TOKEN_TS, String(Date.now()))
 }
 
 /** Removes all device identity data from localStorage (for troubleshooting). */
@@ -146,4 +168,5 @@ export function clearDeviceIdentity(): void {
   localStorage.removeItem(STORAGE_PUBKEY)
   localStorage.removeItem(STORAGE_PRIVKEY)
   localStorage.removeItem(STORAGE_DEVICE_TOKEN)
+  localStorage.removeItem(STORAGE_DEVICE_TOKEN_TS)
 }

@@ -365,19 +365,117 @@ function TelegramCard({ status, accounts, onProbe, probing }: PlatformCardProps)
   )
 }
 
-function DiscordCard({ status, accounts, onProbe, probing }: PlatformCardProps) {
+function DiscordCard({ status, accounts, onProbe, probing, onAction, actionBusy }: PlatformCardProps) {
   const botUsername = status?.probe?.bot?.username
+  const botId = status?.probe?.bot?.id
+  const [message, setMessage] = useState<string | null>(null)
+  const [sendChannel, setSendChannel] = useState('')
+  const [sendText, setSendText] = useState('')
+  const [showSend, setShowSend] = useState(false)
+
+  const handleStart = async () => {
+    setMessage(null)
+    const res = readActionResult(await onAction('discord-start', {}))
+    setMessage(res?.message ?? (res?.ok !== false ? 'Bot started' : res?.error ?? 'Start failed'))
+  }
+
+  const handleStop = async () => {
+    setMessage(null)
+    const res = readActionResult(await onAction('discord-stop', {}))
+    setMessage(res?.message ?? (res?.ok !== false ? 'Bot stopped' : res?.error ?? 'Stop failed'))
+  }
+
+  const handleTest = async () => {
+    setMessage(null)
+    const res = readActionResult(await onAction('discord-test', {}))
+    setMessage(res?.message ?? (res?.ok !== false ? 'Connectivity OK' : res?.error ?? 'Test failed'))
+  }
+
+  const handleSend = async () => {
+    if (!sendChannel.trim() || !sendText.trim()) return
+    setMessage(null)
+    const res = readActionResult(
+      await onAction('discord-send', { channel_id: sendChannel.trim(), message: sendText.trim() }),
+    )
+    if (res?.ok !== false) {
+      setMessage(res?.message ?? 'Message sent')
+      setSendText('')
+    } else {
+      setMessage(res?.error ?? 'Send failed')
+    }
+  }
 
   return (
     <CardShell platform="discord" status={status} accounts={accounts} onProbe={onProbe} probing={probing}>
       <div className="space-y-0.5">
         <StatusRow label="Configured" value={yesNo(status?.configured)} />
         <StatusRow label="Running" value={yesNo(status?.running)} />
+        <StatusRow label="Connected" value={yesNo(status?.connected)} />
         {botUsername && <StatusRow label="Bot" value={botUsername} />}
+        {botId && <StatusRow label="Bot ID" value={botId} />}
         <StatusRow label="Last start" value={relativeTime(status?.lastStartAt)} />
+        <StatusRow label="Last message" value={relativeTime(status?.lastMessageAt)} />
       </div>
+
       <ErrorCallout message={status?.lastError} />
       <ProbeResult probe={status?.probe} />
+
+      {message && (
+        <div className="text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1.5 mt-2">
+          {message}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        {!status?.running ? (
+          <Button onClick={handleStart} disabled={actionBusy} variant="outline" size="xs">
+            Start Bot
+          </Button>
+        ) : (
+          <Button onClick={handleStop} disabled={actionBusy} variant="destructive" size="xs">
+            Stop Bot
+          </Button>
+        )}
+        <Button onClick={handleTest} disabled={actionBusy} variant="outline" size="xs">
+          Test
+        </Button>
+        <Button onClick={() => setShowSend(!showSend)} variant="outline" size="xs">
+          {showSend ? 'Hide Send' : 'Send Message'}
+        </Button>
+      </div>
+
+      {/* Send message form */}
+      {showSend && (
+        <div className="mt-2 p-2.5 bg-muted/30 rounded space-y-2">
+          <input
+            type="text"
+            value={sendChannel}
+            onChange={(e) => setSendChannel(e.target.value)}
+            placeholder="Channel ID"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-xs text-foreground"
+          />
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={sendText}
+              onChange={(e) => setSendText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
+              placeholder="Message..."
+              className="flex-1 bg-background border border-border rounded px-2 py-1 text-xs text-foreground"
+            />
+            <Button
+              onClick={handleSend}
+              disabled={actionBusy || !sendChannel.trim() || !sendText.trim()}
+              variant="default"
+              size="xs"
+            >
+              Send
+            </Button>
+          </div>
+        </div>
+      )}
+
       {accounts.length > 1 && <AccountList accounts={accounts} />}
     </CardShell>
   )

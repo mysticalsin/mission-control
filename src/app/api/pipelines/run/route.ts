@@ -141,12 +141,13 @@ async function spawnStep(
     db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
 
     return { success: true, stdout: stdout.trim() }
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Spawn failed - record error but keep pipeline running for manual advance
-    steps[stepIdx].error = err.message
+    const errMsg = err instanceof Error ? err.message : String(err)
+    steps[stepIdx].error = errMsg
     db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
 
-    return { success: false, error: err.message }
+    return { success: false, error: errMsg }
   }
 }
 

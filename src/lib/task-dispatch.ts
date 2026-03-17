@@ -48,7 +48,7 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
 }
 
 /** Extract first valid JSON object from raw stdout (handles surrounding text/warnings). */
-function parseGatewayJson(raw: string): any | null {
+function parseGatewayJson(raw: string): Record<string, unknown> | null {
   const trimmed = String(raw || '').trim()
   if (!trimmed) return null
   const start = trimmed.indexOf('{')
@@ -195,7 +195,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
         { timeoutMs: 12_000 }
       )
       const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-        ?? parseGatewayJson(String((invokeResult as any)?.stderr || ''))
+        ?? parseGatewayJson(String(invokeResult.stderr || ''))
       const runId = acceptedPayload?.runId
       if (!runId) throw new Error('Gateway did not return a runId for Aegis review')
 
@@ -258,8 +258,8 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
       results.push({ id: task.id, verdict: verdict.status })
       logger.info({ taskId: task.id, verdict: verdict.status }, 'Aegis review completed')
-    } catch (err: any) {
-      const errorMsg = err.message || 'Unknown error'
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
       logger.error({ taskId: task.id, err }, 'Aegis review failed')
 
       // Revert to review so it can be retried
@@ -361,7 +361,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         { timeoutMs: 12_000 }
       )
       const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-        ?? parseGatewayJson(String((invokeResult as any)?.stderr || ''))
+        ?? parseGatewayJson(String(invokeResult.stderr || ''))
       const runId = acceptedPayload?.runId
       if (!runId) throw new Error('Gateway did not return a runId for task dispatch')
 
@@ -376,7 +376,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         waitPayload?.result ? JSON.stringify(waitPayload.result) : waitResult.stdout
       )
       // Capture sessionId from the wait payload if not in the parsed response
-      if (!agentResponse.sessionId && waitPayload?.sessionId) {
+      if (!agentResponse.sessionId && typeof waitPayload?.sessionId === 'string') {
         agentResponse.sessionId = waitPayload.sessionId
       }
 
@@ -442,8 +442,8 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
       results.push({ id: task.id, success: true })
       logger.info({ taskId: task.id, agent: task.agent_name }, 'Task dispatched and completed')
-    } catch (err: any) {
-      const errorMsg = err.message || 'Unknown error'
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
       logger.error({ taskId: task.id, agent: task.agent_name, err }, 'Task dispatch failed')
 
       // Revert to assigned so it can be retried on the next tick

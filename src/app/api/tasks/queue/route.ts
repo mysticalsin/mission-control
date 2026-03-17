@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     const now = Math.floor(Date.now() / 1000)
 
     const currentTask = db.prepare(`
-      SELECT *
+      SELECT id, title, description, status, priority, project_id, project_ticket_no, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, tags, metadata
       FROM tasks
       WHERE workspace_id = ? AND assigned_to = ? AND status = 'in_progress'
       ORDER BY updated_at DESC
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
     // Best-effort atomic pickup loop for race safety.
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const candidate = db.prepare(`
-        SELECT *
+        SELECT id, title, description, status, priority, project_id, project_ticket_no, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, tags, metadata
         FROM tasks
         WHERE workspace_id = ?
           AND status IN ('assigned', 'inbox')
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
       `).run(agent, now, candidate.id, workspaceId, agent)
 
       if (claimed.changes > 0) {
-        const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?').get(candidate.id, workspaceId) as any
+        const task = db.prepare('SELECT id, title, description, status, priority, project_id, project_ticket_no, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, tags, metadata FROM tasks WHERE id = ? AND workspace_id = ?').get(candidate.id, workspaceId) as any
         return NextResponse.json({
           task: mapTaskRow(task),
           reason: 'assigned' as QueueReason,

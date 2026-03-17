@@ -107,13 +107,13 @@ export async function PUT(
     
     // Get current task for comparison
     const currentTask = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, title, description, status, priority, project_id, project_ticket_no, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, tags, metadata FROM tasks WHERE id = ? AND workspace_id = ?')
       .get(taskId, workspaceId) as Task;
-    
+
     if (!currentTask) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
-    
+
     const {
       title,
       description,
@@ -437,13 +437,13 @@ export async function DELETE(
     
     // Get task before deletion for logging
     const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, title, status, assigned_to FROM tasks WHERE id = ? AND workspace_id = ?')
       .get(taskId, workspaceId) as Task;
-    
+
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
-    
+
     // Delete task (cascades will handle comments)
     const stmt = db.prepare('DELETE FROM tasks WHERE id = ? AND workspace_id = ?');
     stmt.run(taskId, workspaceId);

@@ -293,9 +293,10 @@ export async function syncLocalAgents(): Promise<{ ok: boolean; message: string 
       })
     }
     return { ok: true, message: msg }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
     logger.error({ err }, 'Local agent sync failed')
-    return { ok: false, message: `Local agent sync failed: ${err.message}` }
+    return { ok: false, message: `Local agent sync failed: ${message}` }
   }
 }
 

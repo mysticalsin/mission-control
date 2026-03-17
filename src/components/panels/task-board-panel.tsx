@@ -1573,8 +1573,8 @@ function TaskSessionFeed({ sessionId, agentName, isLive }: { sessionId: string; 
       const data = await res.json()
       setMessages(data.messages || [])
       setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to load session transcript')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load session transcript')
     } finally {
       setLoading(false)
     }

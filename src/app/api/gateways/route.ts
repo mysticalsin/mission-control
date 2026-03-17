@@ -78,7 +78,13 @@ export async function POST(request: NextRequest) {
 
   const db = getDatabase()
   ensureTable(db)
-  const body = await request.json()
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
   const { name, host, port, token, is_primary } = body
 
@@ -104,11 +110,11 @@ export async function POST(request: NextRequest) {
 
     const gw = db.prepare('SELECT * FROM gateways WHERE id = ?').get(result.lastInsertRowid) as GatewayEntry
     return NextResponse.json({ gateway: redactToken(gw) }, { status: 201 })
-  } catch (err: any) {
-    if (err.message?.includes('UNIQUE')) {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message?.includes('UNIQUE')) {
       return NextResponse.json({ error: 'A gateway with that name already exists' }, { status: 409 })
     }
-    return NextResponse.json({ error: err.message || 'Failed to add gateway' }, { status: 500 })
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
 }
 
@@ -121,7 +127,14 @@ export async function PUT(request: NextRequest) {
 
   const db = getDatabase()
   ensureTable(db)
-  const body = await request.json()
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
   const { id, ...updates } = body
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -165,7 +178,14 @@ export async function DELETE(request: NextRequest) {
 
   const db = getDatabase()
   ensureTable(db)
-  const body = await request.json()
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
   const { id } = body
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })

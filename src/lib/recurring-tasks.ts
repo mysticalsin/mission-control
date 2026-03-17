@@ -151,8 +151,9 @@ export async function spawnRecurringTasks(): Promise<{ ok: boolean; message: str
     }
 
     return { ok: true, message: spawned > 0 ? `Spawned ${spawned} recurring task(s)` : 'No tasks due' }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
     logger.error({ err }, 'Recurring task spawn failed')
-    return { ok: false, message: `Recurring spawn failed: ${err.message}` }
+    return { ok: false, message: `Recurring spawn failed: ${message}` }
   }
 }

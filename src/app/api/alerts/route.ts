@@ -106,8 +106,8 @@ export async function POST(request: NextRequest) {
       .prepare('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?')
       .get(result.lastInsertRowid, workspaceId) as AlertRule
     return NextResponse.json({ rule }, { status: 201 })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Failed to create rule' }, { status: 500 })
+  } catch (err: unknown) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
 }
 
@@ -123,7 +123,14 @@ export async function PUT(request: NextRequest) {
 
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
-  const body = await request.json()
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
   const { id, ...updates } = body
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -169,7 +176,14 @@ export async function DELETE(request: NextRequest) {
 
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
-  const body = await request.json()
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
   const { id } = body
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })

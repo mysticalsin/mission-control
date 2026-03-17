@@ -27,8 +27,8 @@ export function LocalAgentsDocPanel() {
         const body = await res.json()
         if (!res.ok) throw new Error(body?.error || 'Failed to load AGENTS.md')
         if (!cancelled) setData(body as AgentsDocResponse)
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Failed to load AGENTS.md')
+      } catch (err: unknown) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load AGENTS.md')
       } finally {
         if (!cancelled) setLoading(false)
       }

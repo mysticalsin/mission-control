@@ -24,6 +24,10 @@ interface NavGroup {
   items: NavItem[]
 }
 
+// ADR: Navigation grouped by domain rather than implementation origin.
+// "Core" = command center essentials, "Growth" = sales/marketing/outreach,
+// "Intelligence" = research/data/OSINT, "Media" = content creation tools,
+// "Jarvis" = AI backend services, keeping observe/automate/admin as-is.
 const navGroups: NavGroup[] = [
   {
     id: 'core',
@@ -35,19 +39,60 @@ const navGroups: NavGroup[] = [
       { id: 'channels', label: 'Channels', icon: <ChannelsIcon />, priority: false },
       { id: 'skills', label: 'Skills', icon: <SkillsIcon />, priority: false },
       { id: 'memory', label: 'Memory', icon: <MemoryIcon />, priority: false },
-      { id: 'marketing', label: 'Marketing', icon: <MarketingIcon />, priority: false, essential: true },
-      { id: 'analytics', label: 'Analytics', icon: <AnalyticsIcon />, priority: false, essential: true },
-      { id: 'voice', label: 'Voice', icon: <VoiceIcon />, priority: false, essential: true },
-      { id: 'life-manager', label: 'Life Manager', icon: <LifeManagerIcon />, priority: false, essential: true },
+      { id: 'calendar', label: 'Calendar', icon: <CalendarIcon />, priority: false, essential: true },
       { id: 'meetings', label: 'Meetings', icon: <MeetingsIcon />, priority: false, essential: true },
-      { id: 'trading', label: 'Trading', icon: <TradingIcon />, priority: false, essential: true },
-      { id: 'outreach', label: 'Outreach', icon: <OutreachIcon />, priority: false, essential: true },
-      { id: 'marketplace', label: 'Marketplace', icon: <MarketplaceIcon />, priority: false, essential: true },
-      { id: 'health', label: 'Health', icon: <HealthIcon />, priority: false, essential: true },
+      { id: 'voice', label: 'Voice', icon: <VoiceIcon />, priority: false, essential: true },
       { id: 'gsd', label: 'GSD', icon: <GsdIcon />, priority: false, essential: true },
-      { id: 'communications', label: 'Comms Hub', icon: <CommsHubIcon />, priority: false, essential: true },
-      { id: 'healer', label: 'Healer', icon: <HealerIcon />, priority: false, essential: true },
+      { id: 'life-manager', label: 'Life Manager', icon: <LifeManagerIcon />, priority: false, essential: true },
+    ],
+  },
+  {
+    id: 'growth',
+    label: 'GROWTH',
+    items: [
       { id: 'sales-assistant', label: 'Sales AI', icon: <SalesAiIcon />, priority: false, essential: true },
+      { id: 'marketing', label: 'Marketing', icon: <MarketingIcon />, priority: false, essential: true },
+      { id: 'outreach', label: 'Outreach', icon: <OutreachIcon />, priority: false, essential: true },
+      { id: 'scraping', label: 'Lead Scraping', icon: <ScrapingIcon />, priority: false },
+      { id: 'analytics', label: 'Analytics', icon: <AnalyticsIcon />, priority: false, essential: true },
+      { id: 'trading', label: 'Trading', icon: <TradingIcon />, priority: false, essential: true },
+      { id: 'marketplace', label: 'Marketplace', icon: <MarketplaceIcon />, priority: false, essential: true },
+    ],
+  },
+  {
+    id: 'intelligence',
+    label: 'INTELLIGENCE',
+    items: [
+      { id: 'deep-research', label: 'Deep Research', icon: <DeepResearchIcon />, priority: false },
+      { id: 'notebook', label: 'Notebook LM', icon: <NotebookIcon />, priority: false },
+      { id: 'knowledge-rag', label: 'Knowledge RAG', icon: <KnowledgeRagIcon />, priority: false },
+      { id: 'world-view', label: 'World View', icon: <WorldViewIcon />, priority: false },
+    ],
+  },
+  {
+    id: 'media',
+    label: 'MEDIA',
+    items: [
+      { id: 'vision', label: 'Vision', icon: <VisionIcon />, priority: false },
+      { id: 'video-intel', label: 'Video Intel', icon: <VideoIntelIcon />, priority: false },
+      { id: 'video-render', label: 'Video Render', icon: <VideoRenderIcon />, priority: false },
+      { id: 'nanobanana', label: 'NanoBanana', icon: <NanobananaIcon />, priority: false },
+      { id: 'media', label: 'Media', icon: <MediaIcon />, priority: false },
+      { id: 'web', label: 'Web', icon: <WebIcon />, priority: false },
+    ],
+  },
+  {
+    id: 'jarvis',
+    label: 'JARVIS',
+    items: [
+      { id: 'vault', label: 'Vault', icon: <VaultIcon />, priority: false },
+      { id: 'neural', label: 'Neural', icon: <NeuralIcon />, priority: false },
+      { id: 'stt', label: 'Speech-to-Text', icon: <SttIcon />, priority: false },
+      { id: 'total-recall', label: 'Total Recall', icon: <TotalRecallIcon />, priority: false },
+      { id: 'omega', label: 'Omega', icon: <OmegaIcon />, priority: false },
+      { id: 'evolution', label: 'Evolution', icon: <EvolutionIcon />, priority: false },
+      { id: 'health', label: 'Health', icon: <HealthIcon />, priority: false, essential: true },
+      { id: 'healer', label: 'Healer', icon: <HealerIcon />, priority: false, essential: true },
     ],
   },
   {
@@ -377,18 +422,6 @@ export function NavRail() {
                 <span className="text-[9px] px-1 py-px rounded bg-primary/15 text-primary font-mono">AI</span>
               </div>
               <p className="text-[10px] text-muted-foreground/70 leading-snug">AI orchestration by Tony W.</p>
-            </a>
-            <a
-              href="https://mantu.group"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded-lg border border-void-cyan/20 bg-gradient-to-br from-void-cyan/5 to-transparent hover:from-void-cyan/10 hover:border-void-cyan/40 transition-all duration-200 p-2 group"
-            >
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <span className="text-2xs font-bold text-foreground group-hover:text-void-cyan transition-colors">Mantu</span>
-                <span className="text-[9px] px-1 py-px rounded bg-void-cyan/15 text-void-cyan">Group</span>
-              </div>
-              <p className="text-[10px] text-muted-foreground/70 leading-snug">Built by Tony W. for Mantu Group</p>
             </a>
           </div>
         )}
@@ -1539,15 +1572,6 @@ function GsdIcon() {
   )
 }
 
-function CommsHubIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 3h10v7H4l-3 3V3z" />
-      <path d="M11 6h4v7l-3-3h-1" />
-    </svg>
-  )
-}
-
 function HealerIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1565,3 +1589,181 @@ function SalesAiIcon() {
     </svg>
   )
 }
+
+// -- Jarvis integration icons --
+
+function VaultIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="11" rx="1.5" />
+      <circle cx="8" cy="8.5" r="2" />
+      <path d="M8 6.5v-2" />
+    </svg>
+  )
+}
+
+function NeuralIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="4" cy="4" r="1.5" />
+      <circle cx="12" cy="4" r="1.5" />
+      <circle cx="4" cy="12" r="1.5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="8" cy="8" r="1.5" />
+      <path d="M5.5 5.5L6.5 6.5M9.5 6.5l1-1M5.5 10.5l1-1M9.5 9.5l1 1" />
+    </svg>
+  )
+}
+
+function VisionIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
+      <circle cx="8" cy="8" r="2" />
+    </svg>
+  )
+}
+
+function KnowledgeRagIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 2h5l1 1.5L9 2h5v11H9l-1 1.5L7 13H2z" />
+      <path d="M8 3.5v11" />
+    </svg>
+  )
+}
+
+function SttIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="1.5" width="4" height="7" rx="2" />
+      <path d="M4 7a4 4 0 008 0" />
+      <path d="M8 11v3M6 14h4" />
+    </svg>
+  )
+}
+
+function TotalRecallIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4v4l2.5 2.5" />
+      <path d="M12 2l1.5 1.5M4 2L2.5 3.5" />
+    </svg>
+  )
+}
+
+function WorldViewIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="6.5" />
+      <ellipse cx="8" cy="8" rx="3" ry="6.5" />
+      <path d="M1.5 8h13" />
+      <path d="M2.5 4.5h11M2.5 11.5h11" />
+    </svg>
+  )
+}
+
+function NotebookIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="1.5" width="10" height="13" rx="1" />
+      <path d="M6 1.5v13" />
+      <path d="M8.5 5h2.5M8.5 8h2.5M8.5 11h1.5" />
+    </svg>
+  )
+}
+
+function DeepResearchIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7" cy="7" r="5" />
+      <path d="M11 11l3 3" />
+      <path d="M5 7h4M7 5v4" />
+    </svg>
+  )
+}
+
+function OmegaIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 13h3l2-4 2 4h3" />
+      <circle cx="8" cy="6" r="4.5" />
+    </svg>
+  )
+}
+
+function VideoIntelIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.5" y="3.5" width="9" height="9" rx="1" />
+      <path d="M10.5 6l4-2v8l-4-2" />
+    </svg>
+  )
+}
+
+function VideoRenderIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M6.5 6v4l3.5-2z" />
+    </svg>
+  )
+}
+
+function ScrapingIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 3h12M2 7h8M2 11h10" />
+      <circle cx="13" cy="11" r="2" />
+    </svg>
+  )
+}
+
+
+function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="11" rx="1.5" />
+      <path d="M2 7h12M5 1.5v3M11 1.5v3" />
+    </svg>
+  )
+}
+
+function EvolutionIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12l4-4 3 3 5-7" />
+      <path d="M10 4h4v4" />
+    </svg>
+  )
+}
+
+function MediaIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <circle cx="5.5" cy="6.5" r="1.5" />
+      <path d="M2 11l3-3 2 2 3-3 4 4" />
+    </svg>
+  )
+}
+
+function NanobananaIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12c0-5 3-9 7-10-1 2-1.5 4-1.5 6S11 12 14 13H4v-1z" />
+      <path d="M4 12c-1 0-2-.5-2-1.5" />
+    </svg>
+  )
+}
+
+function WebIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M1.5 8h13M8 1.5c-2 2.5-2 10 0 13M8 1.5c2 2.5 2 10 0 13" />
+    </svg>
+  )
+}
+

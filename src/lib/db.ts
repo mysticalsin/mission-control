@@ -6,6 +6,7 @@ import { eventBus } from './event-bus';
 import { hashPassword } from './password';
 import { logger } from './logger';
 import { parseMentions as parseMentionTokens } from './mentions';
+import { validateEnv } from './env-validation';
 
 // Database file location
 const DB_PATH = config.dbPath;
@@ -14,6 +15,20 @@ const DB_PATH = config.dbPath;
 let db: Database.Database | null = null;
 const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build'
 const isTestMode = process.env.MISSION_CONTROL_TEST_MODE === '1'
+
+// Validate environment variables once at startup (skip during build phase)
+if (!isBuildPhase) {
+  try {
+    const { warnings } = validateEnv()
+    for (const w of warnings) {
+      logger.warn(w)
+    }
+  } catch (err: unknown) {
+    // In production this throws — let it crash. In dev, log and continue.
+    if (process.env.NODE_ENV === 'production') throw err
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Environment validation issue')
+  }
+}
 
 /**
  * Get or create database connection
@@ -26,8 +41,9 @@ export function getDatabase(): Database.Database {
     // Enable WAL mode for better concurrent access
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
-    db.pragma('cache_size = 1000');
+    db.pragma('cache_size = 5000'); // ~20MB cache for better read performance
     db.pragma('foreign_keys = ON');
+    db.pragma('busy_timeout = 5000'); // Wait up to 5s on lock contention instead of failing immediately
     
     // Initialize schema if needed
     initializeSchema();
@@ -63,6 +79,13 @@ function initializeSchema() {
           initScheduler();
         }).catch(() => {
           // Silent - scheduler is optional
+        });
+
+        // Auto-start health pulse so subsystem checks run from first request
+        import('./self-healing/health-pulse').then(({ startHealthPulse }) => {
+          startHealthPulse();
+        }).catch(() => {
+          // Silent - health pulse is optional
         });
       }
     }
@@ -430,11 +453,12 @@ export const db_helpers = {
   getRecentActivities: (limit: number = 50): Activity[] => {
     const db = getDatabase();
     const stmt = db.prepare(`
-      SELECT * FROM activities 
-      ORDER BY created_at DESC 
+      SELECT id, type, entity_type, entity_id, actor, description, data, created_at
+      FROM activities
+      ORDER BY created_at DESC
       LIMIT ?
     `);
-    
+
     return stmt.all(limit) as Activity[];
   },
 
@@ -444,11 +468,12 @@ export const db_helpers = {
   getUnreadNotifications: (recipient: string, workspaceId: number = 1): Notification[] => {
     const db = getDatabase();
     const stmt = db.prepare(`
-      SELECT * FROM notifications 
+      SELECT id, recipient, type, title, message, source_type, source_id, read_at, delivered_at, created_at
+      FROM notifications
       WHERE recipient = ? AND read_at IS NULL AND workspace_id = ?
       ORDER BY created_at DESC
     `);
-    
+
     return stmt.all(recipient, workspaceId) as Notification[];
   },
 

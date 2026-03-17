@@ -1,5 +1,5 @@
-import { NextRequest , NextResponse } from 'next/server'
-import { eventBus, ServerEvent } from '@/lib/event-bus'
+import { NextRequest, NextResponse } from 'next/server'
+import { eventBus, ServerEvent, MAX_SSE_CONNECTIONS } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
@@ -8,10 +8,20 @@ export const runtime = 'nodejs'
 /**
  * GET /api/events - Server-Sent Events stream for real-time DB mutations.
  * Clients connect via EventSource and receive JSON-encoded events.
+ *
+ * Security: backpressure via desiredSize check, max connection cap.
  */
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<Response> {
   const auth = requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  // Reject when at capacity to prevent resource exhaustion
+  if (!eventBus.addConnection()) {
+    return NextResponse.json(
+      { error: `Too many SSE connections (max ${MAX_SSE_CONNECTIONS})` },
+      { status: 503 },
+    )
+  }
 
   const encoder = new TextEncoder()
 
@@ -31,6 +41,11 @@ export async function GET(request: NextRequest) {
         // Skip events from other workspaces (if event carries workspace_id)
         if (event.data?.workspace_id && event.data.workspace_id !== userWorkspaceId) return
         try {
+          // Backpressure: skip enqueue when the stream buffer is full.
+          // desiredSize <= 0 means the consumer cannot keep up — dropping
+          // the event is safer than unbounded memory growth.
+          if (controller.desiredSize !== null && controller.desiredSize <= 0) return
+
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
           )
@@ -53,6 +68,7 @@ export async function GET(request: NextRequest) {
       cleanup = () => {
         eventBus.off('server-event', handler)
         clearInterval(heartbeat)
+        eventBus.removeConnection()
       }
     },
 

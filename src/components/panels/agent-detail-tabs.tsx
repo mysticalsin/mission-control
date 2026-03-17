@@ -975,10 +975,10 @@ export function CreateAgentModal({
       for (const s of steps) s.status = 'done'
       setProgressSteps([...steps])
       setTimeout(() => { onCreated(); onClose() }, 1500)
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Network/unexpected error — fail first step
       steps[0].status = 'error'
-      steps[0].error = err.message || 'Unexpected error'
+      steps[0].error = err instanceof Error ? err.message : 'Unexpected error'
       for (let i = 1; i < steps.length; i++) steps[i].status = 'pending'
       setProgressSteps([...steps])
     } finally {
@@ -1509,8 +1509,8 @@ export function ConfigTab({
     setError(null)
     try {
       await onSaveWorkspaceFile(file, content)
-    } catch (err: any) {
-      setError(err?.message || `Failed to save ${file}`)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : `Failed to save ${file}`)
     } finally {
       if (file === 'identity.md') {
         setSavingIdentityMd(false)
@@ -1542,8 +1542,8 @@ export function ConfigTab({
       if (!response.ok) throw new Error(data.error || 'Failed to save')
       setEditing(false)
       onSave()
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
@@ -2174,8 +2174,8 @@ export function FilesTab({ agent }: { agent: Agent }) {
         content: String(value?.content || ''),
       }))
       setFiles(entries)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -2209,8 +2209,8 @@ export function FilesTab({ agent }: { agent: Agent }) {
       setFiles(prev => prev.map(f =>
         f.name === activeFile ? { ...f, exists: true, content: draft } : f
       ))
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
@@ -2365,8 +2365,8 @@ export function ToolsTab({ agent }: { agent: Agent }) {
       }
       setSuccess(true)
       setTimeout(() => setSuccess(false), 2000)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
@@ -2538,8 +2538,8 @@ export function ChannelsTab({ agent }: { agent: Agent }) {
       })
 
       setChannels(entries)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -2640,8 +2640,8 @@ export function CronTab({ agent }: { agent: Agent }) {
       if (!response.ok) throw new Error('Failed to load cron jobs')
       const data = await response.json()
       setAllJobs(data.jobs || [])
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -2801,8 +2801,8 @@ export function ModelsTab({ agent }: { agent: Agent }) {
       }
       setSuccess(true)
       setTimeout(() => setSuccess(false), 2000)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }

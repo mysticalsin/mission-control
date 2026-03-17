@@ -319,10 +319,11 @@ export async function syncClaudeSessions(force = false): Promise<{ ok: boolean; 
     lastSyncAt = Date.now()
     lastSyncResult = { ok: true, message: `Scanned ${upserted} session(s), ${active} active` }
     return lastSyncResult
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
     logger.error({ err }, 'Claude session sync failed')
     lastSyncAt = Date.now()
-    lastSyncResult = { ok: false, message: `Scan failed: ${err.message}` }
+    lastSyncResult = { ok: false, message: `Scan failed: ${message}` }
     return lastSyncResult
   }
 }

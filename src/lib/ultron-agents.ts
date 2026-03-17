@@ -181,7 +181,6 @@ const SPECIALISTS: readonly UltronAgentDefinition[] = [
   { id: 'cmo-seo', name: 'SEO Expert', role: 'SEO', department: 'Marketing', tier: 3, color: '#FF00FF', avatar: 'S', model: 'claude-haiku-4-5', tokenBudget: 3000, parentId: 'cmo-nexus', description: 'Content optimization, keyword research, analytics' },
   { id: 'cmo-social', name: 'Social Media Manager', role: 'Social Media', department: 'Marketing', tier: 3, color: '#FF00FF', avatar: 'M', model: 'claude-haiku-4-5', tokenBudget: 3000, parentId: 'cmo-nexus', description: 'Scheduling, engagement, community management' },
   { id: 'cmo-linkedin', name: 'LinkedIn Agent', role: 'LinkedIn', department: 'Marketing', tier: 3, color: '#FF00FF', avatar: 'L', model: 'claude-haiku-4-5', tokenBudget: 5000, parentId: 'cmo-nexus', description: 'Platform-specific posting, networking, profile optimization' },
-  { id: 'cmo-gamma', name: 'Gamma Agent', role: 'Presentations', department: 'Marketing', tier: 3, color: '#FF00FF', avatar: 'G', model: 'claude-haiku-4-5', tokenBudget: 5000, parentId: 'cmo-nexus', description: 'Presentation and deck creation via Gamma.app' },
   { id: 'cmo-research', name: 'Market Research Agent', role: 'Market Research', department: 'Marketing', tier: 3, color: '#FF00FF', avatar: 'R', model: 'claude-haiku-4-5', tokenBudget: 3000, parentId: 'cmo-nexus', description: 'Market research, audience analysis, trend validation' },
 
   // COO Prime sub-agents
@@ -252,11 +251,11 @@ export function getSubAgents(parentId: string): readonly UltronAgentDefinition[]
 
 /** Get the routing table for task delegation */
 export const ROUTING_TABLE: ReadonlyArray<{ readonly keywords: readonly string[]; readonly routeTo: string }> = [
-  { keywords: ['sales', 'prospect', 'outreach', 'proposal', 'deal', 'pipeline', 'close', 'lead'], routeTo: 'cso-venture' },
+  { keywords: ['sales', 'prospect', 'outreach', 'proposal', 'deal', 'pipeline', 'close', 'lead', 'scrape', 'crawl', 'crawlee'], routeTo: 'cso-venture' },
   { keywords: ['revenue', 'margin', 'excel', 'p&l', 'tracking', 'financials', 'invoice', 'budget'], routeTo: 'cfo-ledger' },
   { keywords: ['code', 'script', 'bug', 'build', 'deploy', 'docker', 'n8n', 'skill', 'api'], routeTo: 'cto-omega' },
-  { keywords: ['research', 'find', 'who is', 'market', 'intel', 'news', 'look up', 'analyze'], routeTo: 'cio-alpha' },
-  { keywords: ['post', 'linkedin', 'content', 'article', 'brand', 'deck', 'gamma', 'seo'], routeTo: 'cmo-nexus' },
+  { keywords: ['research', 'find', 'who is', 'market', 'intel', 'news', 'look up', 'analyze', 'deep research', 'paper'], routeTo: 'cio-alpha' },
+  { keywords: ['post', 'linkedin', 'content', 'article', 'brand', 'deck', 'seo'], routeTo: 'cmo-nexus' },
   { keywords: ['email', 'meeting', 'brief', 'schedule', 'contact', 'coordinate', 'calendar'], routeTo: 'clo-relay' },
   { keywords: ['operations', 'improve', 'optimize', 'workflow', 'performance', 'automate'], routeTo: 'coo-prime' },
   { keywords: ['audit', 'health', 'status', 'check', 'report', 'config', 'security scan'], routeTo: 'cao-sentinel' },

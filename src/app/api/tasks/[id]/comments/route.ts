@@ -36,7 +36,7 @@ export async function GET(
     
     // Get comments ordered by creation time
     const stmt = db.prepare(`
-      SELECT * FROM comments 
+      SELECT id, task_id, author, content, created_at, parent_id, mentions FROM comments
       WHERE task_id = ? AND workspace_id = ?
       ORDER BY created_at ASC
     `);
@@ -136,7 +136,7 @@ export async function POST(
 
     // Verify task exists
     const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, title, assigned_to FROM tasks WHERE id = ? AND workspace_id = ?')
       .get(taskId, workspaceId) as any;
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
@@ -233,7 +233,7 @@ export async function POST(
     
     // Fetch the created comment
     const createdComment = db
-      .prepare('SELECT * FROM comments WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, task_id, author, content, created_at, parent_id, mentions FROM comments WHERE id = ? AND workspace_id = ?')
       .get(commentId, workspaceId) as Comment;
     
     return NextResponse.json({ 

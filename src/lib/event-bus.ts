@@ -5,6 +5,9 @@ import { EventEmitter } from 'events'
  * Singleton per Next.js server process.
  */
 
+/** Maximum concurrent SSE connections to prevent resource exhaustion */
+export const MAX_SSE_CONNECTIONS = 100
+
 export interface ServerEvent {
   type: string
   data: any
@@ -47,10 +50,11 @@ export type EventType =
 
 class ServerEventBus extends EventEmitter {
   private static instance: ServerEventBus | null = null
+  private _connectionCount = 0
 
   private constructor() {
     super()
-    this.setMaxListeners(50)
+    this.setMaxListeners(MAX_SSE_CONNECTIONS + 10)
   }
 
   static getInstance(): ServerEventBus {
@@ -58,6 +62,23 @@ class ServerEventBus extends EventEmitter {
       ServerEventBus.instance = new ServerEventBus()
     }
     return ServerEventBus.instance
+  }
+
+  /** Current number of active SSE connections */
+  get connectionCount(): number {
+    return this._connectionCount
+  }
+
+  /** Register a new SSE connection. Returns false if at capacity. */
+  addConnection(): boolean {
+    if (this._connectionCount >= MAX_SSE_CONNECTIONS) return false
+    this._connectionCount += 1
+    return true
+  }
+
+  /** Unregister an SSE connection on disconnect. */
+  removeConnection(): void {
+    this._connectionCount = Math.max(0, this._connectionCount - 1)
   }
 
   /**

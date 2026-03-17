@@ -362,7 +362,7 @@ export async function PUT(request: NextRequest) {
 
     const transaction = db.transaction((tasksToUpdate: any[]) => {
       for (const task of tasksToUpdate) {
-        const oldTask = db.prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?').get(task.id, workspaceId) as Task;
+        const oldTask = db.prepare('SELECT id, title, status, priority, assigned_to FROM tasks WHERE id = ? AND workspace_id = ?').get(task.id, workspaceId) as Task;
         if (!oldTask) continue;
 
         if (task.status === 'done' && !hasAegisApproval(db, task.id, workspaceId)) {

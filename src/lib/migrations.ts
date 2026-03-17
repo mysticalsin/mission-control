@@ -1303,6 +1303,48 @@ const migrations: Migration[] = [
     }
   },
   selfHealingMigration,
+  {
+    id: '043_performance_indexes',
+    up: (db) => {
+      // Compound indexes for token_usage queries that filter by agent_name + created_at
+      // Used by: agent-optimizer (WHERE agent_name = ? AND created_at > ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_token_usage_agent_name_created ON token_usage(agent_name, created_at)`)
+
+      // Used by: tokens/by-agent route, tokens/route (WHERE workspace_id = ? AND created_at >= ?)
+      // Replaces separate workspace_id and created_at lookups with a single range scan
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_token_usage_workspace_created ON token_usage(workspace_id, created_at)`)
+
+      // Compound index for tasks filtered by assignee within a workspace
+      // Used by: diagnostics, heartbeat, attribution, agent-evals
+      // (WHERE assigned_to = ? AND workspace_id = ? AND status = ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workspace_assigned_status ON tasks(workspace_id, assigned_to, status)`)
+
+      // Tasks filtered by workspace + status + updated_at for workload/standup queries
+      // (WHERE workspace_id = ? AND status = 'done' AND updated_at >= ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status_updated ON tasks(workspace_id, status, updated_at)`)
+
+      // Activities filtered by actor within a workspace over time range
+      // Used by: diagnostics, attribution (WHERE actor = ? AND workspace_id = ? AND created_at >= ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_activities_actor_workspace_created ON activities(actor, workspace_id, created_at)`)
+
+      // Health checks filtered by workspace + time for ultron/status route
+      // (WHERE created_at > ? AND workspace_id = ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_health_checks_workspace_created ON health_checks(workspace_id, created_at)`)
+
+      // Audit log filtered by action + time for security status checks
+      // (WHERE action = 'login_failed' AND created_at > ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_log_action_created ON audit_log(action, created_at)`)
+
+      // Notifications filtered by workspace + recipient + read status
+      // Supersedes the existing recipient_read index by including workspace_id prefix
+      // (WHERE recipient = ? AND read_at IS NULL AND workspace_id = ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_notifications_workspace_recipient_read ON notifications(workspace_id, recipient, read_at)`)
+
+      // Learned patterns filtered by workspace + type + confidence for self-learning queries
+      // (WHERE workspace_id = ? AND pattern_type = ? AND confidence > ?)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_learned_patterns_workspace_type_conf ON learned_patterns(workspace_id, pattern_type, confidence DESC)`)
+    }
+  },
 ]
 
 export function runMigrations(db: Database.Database) {
