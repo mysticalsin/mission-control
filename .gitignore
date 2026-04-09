@@ -52,6 +52,8 @@ src/jarvis/.venv*/
 src/jarvis/__pycache__/
 src/jarvis/data/
 src/jarvis/.env
+src/jarvis/.claude/
+src/jarvis/*.db
 
 # Obsidian plugin binaries (install via scripts/install-obsidian-marp.sh)
 wiki/.obsidian/plugins/obsidian-marp/main.js
