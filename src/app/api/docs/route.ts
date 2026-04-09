@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { apiGuard } from '@/lib/api-guard'
 
 let cachedSpec: string | null = null
 
-export async function GET() {
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'none' }, async () => {
   if (!cachedSpec) {
     const specPath = join(process.cwd(), 'openapi.json')
     cachedSpec = readFileSync(specPath, 'utf-8')
@@ -13,7 +14,8 @@ export async function GET() {
   return new NextResponse(cachedSpec, {
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=3600',
+      // Private: authenticated users only — never cache in shared proxies
+      'Cache-Control': 'private, max-age=3600',
     },
   })
-}
+})

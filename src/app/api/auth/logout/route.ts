@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { destroySession, getUserFromRequest } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
-import { extractClientIp } from '@/lib/rate-limit'
+import { extractClientIp, loginLimiter } from '@/lib/rate-limit'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure, parseMcSessionCookieHeader } from '@/lib/session-cookie'
 
 export async function POST(request: Request) {
+  const rateCheck = loginLimiter(request)
+  if (rateCheck) return rateCheck
   const user = getUserFromRequest(request)
   const cookieHeader = request.headers.get('cookie') || ''
   const token = parseMcSessionCookieHeader(cookieHeader)

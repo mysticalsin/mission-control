@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseNaturalSchedule } from '@/lib/schedule-parser'
+import { apiGuard } from '@/lib/api-guard'
 
 /**
  * GET /api/schedule-parse?input=every+morning+at+9am
  * Returns { cronExpr, humanReadable } or { error }
  */
-export async function GET(request: NextRequest) {
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request: NextRequest) => {
   const input = request.nextUrl.searchParams.get('input')
   if (!input) {
     return NextResponse.json({ error: 'Missing input parameter' }, { status: 400 })
@@ -17,4 +18,4 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json(result)
-}
+})
