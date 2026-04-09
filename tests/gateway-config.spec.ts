@@ -57,9 +57,15 @@ vi.mock('@/lib/gateway-runtime', () => ({
   getDetectedGatewayToken: vi.fn(() => null),
 }))
 
-vi.mock('@/lib/rate-limit', () => ({
-  mutationLimiter: vi.fn(() => null),
-}))
+vi.mock('@/lib/rate-limit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/rate-limit')>()
+  return {
+    ...actual,
+    mutationLimiter: vi.fn(() => null),
+    readLimiter: vi.fn(() => null),
+    loginLimiter: vi.fn(() => null),
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Helpers

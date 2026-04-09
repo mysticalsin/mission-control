@@ -1,9 +1,8 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
+import { getErrorMessage } from '@/lib/types/sql'
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 
@@ -58,9 +57,7 @@ interface PipelineRun {
 /**
  * GET /api/pipelines/run - Get pipeline runs
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
 
   try {
     const db = getDatabase()
@@ -109,18 +106,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/pipelines/run error')
     return NextResponse.json({ error: 'Failed to fetch runs' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/pipelines/run - Start a pipeline run or advance a running one
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -140,7 +131,7 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/pipelines/run error')
     return NextResponse.json({ error: 'Failed to process pipeline run' }, { status: 500 })
   }
-}
+})
 
 /** Spawn a single pipeline step using `openclaw agent` */
 async function spawnStep(

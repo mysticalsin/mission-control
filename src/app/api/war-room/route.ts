@@ -1,10 +1,9 @@
 export const dynamic = 'force-dynamic'
 
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
-import { readLimiter } from '@/lib/rate-limit'
 import { fetchAllAgentMetrics, computeCognitiveLoad } from '@/lib/cognitive-load'
 import { selfHealingEngine } from '@/lib/self-healing'
 import { ALL_ULTRON_AGENTS } from '@/lib/ultron-agents'
@@ -158,15 +157,7 @@ function countErrors24h(db: ReturnType<typeof getDatabase>, workspaceId: number)
  * GET /api/war-room
  * Crisis command center snapshot: cognitive load, system health, alerts, errors.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const limited = readLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -250,4 +241,4 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { status: 500 }
     )
   }
-}
+})

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { Database } from 'better-sqlite3';
 import { getDatabase } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
+import { apiGuard } from '@/lib/api-guard';
 
 const ALLOWED_SECTIONS = ['summary', 'tasks', 'errors', 'activity', 'trends', 'tokens'] as const;
 type DiagnosticsSection = (typeof ALLOWED_SECTIONS)[number];
@@ -60,17 +60,11 @@ function parseSectionsParam(raw: string | null): { value?: Set<DiagnosticsSectio
  *   trends      - Multi-period comparison for trend detection
  *   tokens      - Token usage by model with cost estimates
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase();
-    const resolvedParams = await params;
-    const agentId = resolvedParams.id;
+    const url = new URL(request.url);
+    const agentId = url.pathname.split('/').at(-2) ?? '';
     const workspaceId = auth.user.workspace_id ?? 1;
 
     interface AgentRow { id: number; name: string; role: string; status: string; last_seen: number | null; created_at: number }
@@ -87,7 +81,7 @@ export async function GET(
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = url;
     const requesterAgentName = auth.user.agent_name?.trim() || '';
     const privileged = searchParams.get('privileged') === '1';
     const isSelfRequest = (requesterAgentName || auth.user.username) === agent.name;
@@ -150,7 +144,7 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/agents/[id]/diagnostics error');
     return NextResponse.json({ error: 'Failed to fetch diagnostics' }, { status: 500 });
   }
-}
+});
 
 /** High-level KPIs */
 function buildSummary(db: Database, agentName: string, workspaceId: number, since: number) {

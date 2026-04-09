@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { SqlParam } from '@/lib/types/sql'
 
 interface ReplayBookmark {
@@ -29,13 +28,7 @@ const createBookmarkSchema = z.object({
  * GET /api/exec-replay/bookmarks
  * List bookmarks for the current workspace. Optional ?task_id= filter.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const limit = readLimiter(request)
-  if (limit) return limit
-
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const taskIdParam = request.nextUrl.searchParams.get('task_id')
 
@@ -59,19 +52,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const rows = db.prepare(query).all(...params) as ReplayBookmark[]
   return NextResponse.json({ success: true, data: rows })
-}
+})
 
 /**
  * POST /api/exec-replay/bookmarks
  * Create a bookmark for a specific trace step (operator only).
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const limit = mutationLimiter(request)
-  if (limit) return limit
-
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const createdBy = auth.user.username
 
@@ -101,4 +88,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   `).get(result.lastInsertRowid) as ReplayBookmark
 
   return NextResponse.json({ success: true, data: created }, { status: 201 })
-}
+})

@@ -1,6 +1,6 @@
 import { getErrorMessage } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 
 interface RoutingRule {
@@ -30,10 +30,7 @@ interface UpsertBody {
  * Lists all routing rules for the workspace, ordered by priority ascending.
  * Admin only — used by the ProviderFailoverPanel to render the routing table.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const db = getDatabase()
 
@@ -61,7 +58,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { status: 500 },
     )
   }
-}
+})
 
 /**
  * POST /api/providers/routing
@@ -69,10 +66,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * Automatically assigns the next available priority when not provided.
  * Admin only.
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const db = getDatabase()
 
@@ -123,7 +117,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 500 },
     )
   }
-}
+})
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

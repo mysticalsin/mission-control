@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { readFile, readdir, stat } from 'fs/promises'
 import { join } from 'path'
 import { config } from '@/lib/config'
-import { requireRole } from '@/lib/auth'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 const LOGS_PATH = config.logsDir
@@ -176,13 +175,7 @@ async function readLogFile(filePath: string, source: string, maxLines: number): 
   }
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const action = searchParams.get('action') || 'recent'
@@ -252,15 +245,9 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'Logs API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   try {
     const { action, message, level, source: customSource, session } = await request.json()
 
@@ -287,4 +274,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'Logs API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

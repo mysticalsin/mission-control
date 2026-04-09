@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { config } from '@/lib/config'
-import { requireRole } from '@/lib/auth'
-import { readLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { buildLinkGraph, extractWikiLinks } from '@/lib/memory-utils'
 import { readFile } from 'fs/promises'
 import { join, basename, extname } from 'path'
@@ -10,13 +9,7 @@ import { resolveWithin } from '@/lib/paths'
 
 const MEMORY_PATH = config.memoryDir
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = readLimiter(request)
-  if (limited) return limited
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   if (!MEMORY_PATH) {
     return NextResponse.json({ error: 'Memory directory not configured' }, { status: 500 })
   }
@@ -73,4 +66,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err }, 'Memory links API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

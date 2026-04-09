@@ -1,7 +1,7 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { syncClaudeSessions } from '@/lib/claude-sessions'
 import { logger } from '@/lib/logger'
 
@@ -14,10 +14,7 @@ import { logger } from '@/lib/logger'
  *   limit=50       — max results (default 50, max 200)
  *   offset=0       — pagination offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -91,15 +88,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/claude/sessions error')
     return NextResponse.json({ error: 'Failed to fetch Claude sessions' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/claude/sessions — Trigger a manual scan of local Claude sessions
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (_request, _auth) => {
   try {
     const result = await syncClaudeSessions()
     return NextResponse.json(result)
@@ -107,4 +101,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/claude/sessions error')
     return NextResponse.json({ error: 'Failed to scan Claude sessions' }, { status: 500 })
   }
-}
+})

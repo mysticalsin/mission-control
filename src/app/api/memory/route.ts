@@ -5,8 +5,7 @@ import { join, dirname, sep } from 'path'
 import { config } from '@/lib/config'
 import { db_helpers } from '@/lib/db'
 import { resolveWithin } from '@/lib/paths'
-import { requireRole } from '@/lib/auth'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { validateSchema, extractWikiLinks } from '@/lib/memory-utils'
 
@@ -145,13 +144,7 @@ async function buildFileTree(
   }
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const path = searchParams.get('path')
@@ -320,15 +313,9 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'Memory API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const body = await request.json()
     const { action, path, content } = body
@@ -397,15 +384,9 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'Memory POST API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const body = await request.json()
     const { action, path } = body
@@ -442,4 +423,4 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'Memory DELETE API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

@@ -1,9 +1,8 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { isHermesInstalled, isHermesGatewayRunning, scanHermesSessions } from '@/lib/hermes-sessions'
 import { getHermesTasks } from '@/lib/hermes-tasks'
@@ -13,10 +12,7 @@ import { logger } from '@/lib/logger'
 const HERMES_HOME = join(config.homeDir, '.hermes')
 const HOOK_DIR = join(HERMES_HOME, 'hooks', 'mission-control')
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   try {
     const installed = isHermesInstalled()
     const gatewayRunning = installed ? isHermesGatewayRunning() : false
@@ -39,15 +35,9 @@ export async function GET(request: NextRequest) {
     logger.error({ err }, 'Hermes status check failed')
     return NextResponse.json({ error: 'Failed to check hermes status' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   try {
     const body = await request.json()
     const { action } = body
@@ -83,7 +73,7 @@ export async function POST(request: NextRequest) {
     logger.error({ err }, 'Hermes hook management failed')
     return NextResponse.json({ error: getErrorMessage(err) || 'Hook operation failed' }, { status: 500 })
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // Hook file contents

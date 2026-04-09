@@ -1,18 +1,16 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
+import { getErrorMessage } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server'
-import { getUserFromRequest, getAllUsers, createUser, updateUser, deleteUser, getUserById, requireRole, destroyAllUserSessions } from '@/lib/auth'
+import { getUserFromRequest, getAllUsers, createUser, updateUser, deleteUser, getUserById, destroyAllUserSessions } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { validateBody, createUserSchema } from '@/lib/validation'
-import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
+import { extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
+import { apiGuard } from '@/lib/api-guard'
 
 /**
  * GET /api/auth/users - List all users (admin only)
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
   const user = getUserFromRequest(request)
   if (!user || user.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
@@ -21,19 +19,16 @@ export async function GET(request: NextRequest) {
   const users = getAllUsers()
   const workspaceId = user.workspace_id ?? 1
   return NextResponse.json({ users: users.filter((u) => (u.workspace_id ?? 1) === workspaceId) })
-}
+})
 
 /**
  * POST /api/auth/users - Create a new user (admin only)
  */
-export async function POST(request: NextRequest) {
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const currentUser = getUserFromRequest(request)
   if (!currentUser || currentUser.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
 
   try {
     const result = await validateBody(request, createUserSchema)
@@ -75,15 +70,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/auth/users error')
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/auth/users - Update a user (admin only)
  */
-export async function PUT(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const currentUser = getUserFromRequest(request)
   if (!currentUser || currentUser.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
@@ -151,15 +143,12 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/auth/users error')
     return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/auth/users - Delete a user (admin only)
  */
-export async function DELETE(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const currentUser = getUserFromRequest(request)
   if (!currentUser || currentUser.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
@@ -201,4 +190,4 @@ export async function DELETE(request: NextRequest) {
   })
 
   return NextResponse.json({ success: true })
-}
+})

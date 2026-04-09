@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { readLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { getSecurityPosture } from '@/lib/security-events'
-import { getMcpCallStats } from '@/lib/mcp-audit'
 import { runSecurityScan } from '@/lib/security-scan'
 
 type Timeframe = 'hour' | 'day' | 'week' | 'month'
@@ -16,13 +14,7 @@ const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
   month: 30 * 86400,
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const timeframe = (searchParams.get('timeframe') || 'day') as Timeframe
@@ -253,4 +245,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/security-audit error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

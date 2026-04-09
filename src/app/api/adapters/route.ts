@@ -1,18 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getAdapter, listAdapters } from '@/lib/adapters'
-import { agentHeartbeatLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 /**
  * GET /api/adapters — List available framework adapters.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   return NextResponse.json({ adapters: listAdapters() })
-}
+})
 
 /**
  * POST /api/adapters — Framework-agnostic agent action dispatcher.
@@ -26,13 +22,7 @@ export async function GET(request: NextRequest) {
  *   assignments — Get pending task assignments
  *   disconnect — Disconnect an agent
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateLimited = agentHeartbeatLimiter(request)
-  if (rateLimited) return rateLimited
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   let body: Record<string, unknown>
   try {
     body = await request.json()
@@ -121,6 +111,6 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error, framework, action }, 'POST /api/adapters error')
     return NextResponse.json({ error: 'Adapter action failed' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

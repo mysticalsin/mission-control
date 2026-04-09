@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
@@ -24,11 +23,8 @@ async function isGatewayReachable(): Promise<boolean> {
   }
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const action = request.nextUrl.searchParams.get('action') || 'list'
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
+  const action = new URL(request.url).searchParams.get('action') || 'list'
 
   if (action === 'list') {
     try {
@@ -77,7 +73,7 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
-}
+})
 
 const VALID_DEVICE_ACTIONS = ['approve', 'reject', 'rotate-token', 'revoke-token'] as const
 type DeviceAction = (typeof VALID_DEVICE_ACTIONS)[number]
@@ -94,13 +90,7 @@ const ACTION_RPC_MAP: Record<DeviceAction, { method: string; paramKey: 'requestI
  * POST /api/nodes - Device management actions
  * Body: { action: DeviceAction, requestId?: string, deviceId?: string, role?: string, scopes?: string[] }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   let body: Record<string, unknown>
   try {
     body = await request.json()
@@ -140,4 +130,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err }, 'Gateway device action failed')
     return NextResponse.json({ error: 'Gateway device action failed' }, { status: 502 })
   }
-}
+})

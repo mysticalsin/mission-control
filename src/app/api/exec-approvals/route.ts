@@ -1,8 +1,7 @@
 import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 import path from 'node:path'
@@ -23,10 +22,7 @@ function computeHash(raw: string): string {
  * GET /api/exec-approvals - Fetch pending execution approval requests
  * GET /api/exec-approvals?action=allowlist - Fetch per-agent allowlists
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (request, _auth) => {
   const action = request.nextUrl.searchParams.get('action')
 
   if (action === 'allowlist') {
@@ -59,7 +55,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({ approvals: [] })
   }
-}
+})
 
 async function getAllowlist(): Promise<NextResponse> {
   const filePath = execApprovalsPath()
@@ -92,13 +88,7 @@ async function getAllowlist(): Promise<NextResponse> {
  * PUT /api/exec-approvals - Save allowlist changes
  * Body: { agents: Record<string, { pattern: string }[]>, hash?: string }
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   let body: { agents: Record<string, { pattern: string }[]>; hash?: string }
   try {
     body = await request.json()
@@ -159,19 +149,13 @@ export async function PUT(request: NextRequest) {
     logger.error({ err }, 'Failed to save exec-approvals config')
     return NextResponse.json({ error: `Failed to save: ${getErrorMessage(err)}` }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/exec-approvals - Respond to an execution approval request
  * Body: { id: string, action: 'approve' | 'deny' | 'always_allow', reason?: string }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   let body: { id: string; action: string; reason?: string }
   try {
     body = await request.json()
@@ -215,4 +199,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err }, 'Gateway exec-approvals respond failed')
     return NextResponse.json({ error: 'Gateway unreachable' }, { status: 502 })
   }
-}
+})

@@ -1,11 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireRole } from '@/lib/auth'
 import { validateBody } from '@/lib/validation'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { getDatabase } from '@/lib/db'
 import { BrowserAgent } from '@/lib/browser'
+import { apiGuard } from '@/lib/api-guard'
 
 const BrowseSchema = z.object({
   url: z.string().url(),
@@ -20,21 +19,13 @@ const BrowseSchema = z.object({
  * WHY: Agents need to read live web content — this provides a self-healing,
  * audited fetch with optional screenshot capture.
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
-  const rateLimited = mutationLimiter(req)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(req, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (req, auth) => {
   const validated = await validateBody(req, BrowseSchema)
   if ('error' in validated) return validated.error
 
   try {
-    const { id: agentId } = await params
+    const url = new URL(req.url)
+    const agentId = url.pathname.split('/').at(-2) ?? ''
     const agent = BrowserAgent.getInstance()
     const result = await agent.navigate(validated.data.url, {
       ...validated.data,
@@ -48,25 +39,17 @@ export async function POST(
     logger.error({ err }, 'Browse POST failed')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 /**
  * GET /api/agents/[id]/browse
  * Returns the 10 most recent browse sessions for the given agent.
  * WHY: Audit trail — operators can review what URLs an agent has visited.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
-  const rateLimited = readLimiter(req)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(req, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (req, auth) => {
   try {
-    const { id: agentId } = await params
+    const url = new URL(req.url)
+    const agentId = url.pathname.split('/').at(-2) ?? ''
     // WHY: workspaceId scoped to authenticated user — prevents cross-workspace audit access
     const workspaceId = auth.user.workspace_id
 
@@ -85,6 +68,6 @@ export async function GET(
     logger.error({ err }, 'Browse GET failed')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

@@ -1,8 +1,7 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import type { HandoffChain, HandoffChainParsed, HandoffStep } from '../route'
 
@@ -16,15 +15,9 @@ function parseChain(chain: HandoffChain): HandoffChainParsed {
 /**
  * GET /api/handoff-chains/[id] — get a single chain by id
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1) ?? ''
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
@@ -41,23 +34,14 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/handoff-chains/[id] error')
     return NextResponse.json({ error: 'Failed to fetch handoff chain' }, { status: 500 })
   }
-}
+})
 
 /**
  * PATCH /api/handoff-chains/[id] — update chain fields
  */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PATCH = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1) ?? ''
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
@@ -125,20 +109,14 @@ export async function PATCH(
     logger.error({ err: error }, 'PATCH /api/handoff-chains/[id] error')
     return NextResponse.json({ error: 'Failed to update handoff chain' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/handoff-chains/[id] — delete chain and cascade runs
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1) ?? ''
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
@@ -156,4 +134,4 @@ export async function DELETE(
     logger.error({ err: error }, 'DELETE /api/handoff-chains/[id] error')
     return NextResponse.json({ error: 'Failed to delete handoff chain' }, { status: 500 })
   }
-}
+})

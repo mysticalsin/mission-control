@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers, type Message } from '@/lib/db'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import type { User } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { scanForInjection } from '@/lib/injection-guard'
 import { resolveCoordinatorDeliveryTarget } from '@/lib/coordinator-routing'
@@ -35,13 +34,7 @@ interface AgentRow {
  * preserved as-is to maintain correct agent conversation threading. If `from` is
  * omitted, we fall back to the authenticated user's display name.
  */
-export async function handlePostMessage(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export async function handlePostMessage(request: NextRequest, auth: { user: User }): Promise<NextResponse> {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1

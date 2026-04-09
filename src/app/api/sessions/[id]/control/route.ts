@@ -1,26 +1,16 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { db_helpers } from '@/lib/db'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 // Only allow alphanumeric, hyphens, and underscores in session IDs
 const SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-2) ?? ''
     const { action } = await request.json()
 
     if (!SESSION_ID_RE.test(id)) {
@@ -69,4 +59,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

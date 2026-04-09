@@ -1,10 +1,10 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
+import { getErrorMessage } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, readFileSync, writeFileSync, chmodSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
@@ -56,9 +56,7 @@ function getFailingChecks() {
     .filter((check) => check.status !== 'pass')
 }
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
 
   // Optional: pass { ids: ["check_id"] } to fix only specific issues
   let targetIds: Set<string> | null = null
@@ -382,4 +380,4 @@ export async function POST(request: NextRequest) {
       ? 'Some issues require manual action or additional review. Environment-backed fixes may still require a server restart to fully apply.'
       : 'All currently detected auto-fixable issues have been resolved. Restart the server if you changed environment-backed settings.',
   })
-}
+})

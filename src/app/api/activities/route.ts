@@ -1,8 +1,7 @@
 import { SqlParam } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, Activity } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
-import { readLimiter } from '@/lib/rate-limit';
+import { apiGuard } from '@/lib/api-guard';
 import { logger } from '@/lib/logger';
 
 /** Entity detail rows returned by per-type lookup queries */
@@ -14,29 +13,23 @@ interface CommentDetailRow { id: number; content: string | null; task_id: number
  * GET /api/activities - Get activity stream or stats
  * Query params: type, actor, entity_type, limit, offset, since, hours (for stats)
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const { searchParams, pathname } = new URL(request.url);
     const workspaceId = auth.user.workspace_id ?? 1;
-    
+
     // Route to stats endpoint if requested
     if (pathname.endsWith('/stats') || searchParams.has('stats')) {
       return handleStatsRequest(request, workspaceId);
     }
-    
+
     // Default activities endpoint
     return handleActivitiesRequest(request, workspaceId);
   } catch (error) {
     logger.error({ err: error }, 'GET /api/activities error');
     return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
   }
-}
+})
 
 /**
  * Handle regular activities request

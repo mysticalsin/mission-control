@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { ALL_ULTRON_AGENTS } from '@/lib/ultron-agents'
 import { fetchAllAgentMetrics, computeCognitiveLoad } from '@/lib/cognitive-load'
@@ -28,12 +28,7 @@ export interface CognitiveLoadResponse {
  * Returns composite cognitive-load scores for all agents.
  * Auth: viewer role minimum.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -74,4 +69,4 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, 'GET /api/agents/cognitive-load error')
     return NextResponse.json({ error: 'Failed to fetch cognitive load data' }, { status: 500 })
   }
-}
+})

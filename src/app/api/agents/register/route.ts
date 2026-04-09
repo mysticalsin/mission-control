@@ -1,5 +1,5 @@
 import { getErrorMessage } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
 
 interface AgentRow {
@@ -18,8 +18,7 @@ interface AgentRow {
   content_hash: string | null
   workspace_path: string | null
 }
-import { requireRole } from '@/lib/auth'
-import { selfRegisterLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logAuditEvent } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
@@ -38,13 +37,7 @@ const VALID_ROLES = ['coder', 'reviewer', 'tester', 'devops', 'researcher', 'ass
  *
  * Rate-limited to 5 registrations/min per IP to prevent spam.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = selfRegisterLimiter(request)
-  if (limited) return limited
-
+export const POST = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, auth) => {
   let body: Record<string, unknown>
   try {
     body = await request.json() as Record<string, unknown>
@@ -151,6 +144,6 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/agents/register error')
     return NextResponse.json({ error: 'Registration failed' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

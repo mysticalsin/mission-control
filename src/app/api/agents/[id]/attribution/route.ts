@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { Database } from 'better-sqlite3';
 import { getDatabase } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
+import { apiGuard } from '@/lib/api-guard';
 
 const ALLOWED_SECTIONS = new Set(['identity', 'audit', 'mutations', 'cost']);
 
@@ -23,17 +23,11 @@ const ALLOWED_SECTIONS = new Set(['identity', 'audit', 'mutations', 'cost']);
  *   mutations  - Task/memory/soul changes attributed to this agent
  *   cost       - Token usage and cost breakdown per model
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase();
-    const resolvedParams = await params;
-    const agentId = resolvedParams.id;
+    const url = new URL(request.url);
+    const agentId = url.pathname.split('/').at(-2) ?? '';
     const workspaceId = auth.user.workspace_id ?? 1;
 
     // Resolve agent
@@ -48,7 +42,7 @@ export async function GET(
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = url;
     const privileged = searchParams.get('privileged') === '1';
     const isSelfByHeader = auth.user.agent_name === agent.name;
     const isSelfByUsername = auth.user.username === agent.name;
@@ -102,7 +96,7 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/agents/[id]/attribution error');
     return NextResponse.json({ error: 'Failed to fetch attribution data' }, { status: 500 });
   }
-}
+});
 
 interface AgentRow {
   id: number; name: string; role: string; session_key: string | null

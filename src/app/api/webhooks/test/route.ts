@@ -1,16 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { deliverWebhookPublic } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
 
 /**
  * POST /api/webhooks/test - Send a test event to a webhook
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -39,4 +36,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/webhooks/test error')
     return NextResponse.json({ error: 'Failed to test webhook' }, { status: 500 })
   }
-}
+})

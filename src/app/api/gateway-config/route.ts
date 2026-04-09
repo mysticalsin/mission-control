@@ -1,16 +1,13 @@
 import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
-import { requireRole, type User } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
 import { validateBody, gatewayConfigUpdateSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
 import { logger } from '@/lib/logger'
-
-// Authenticated session shape returned by requireRole on success
-type AuthSession = { user: User }
+import { apiGuard } from '@/lib/api-guard'
+import type { NextRequest } from 'next/server'
 
 function getConfigPath(): string | null {
   return config.openclawConfigPath || null
@@ -35,10 +32,7 @@ function computeHash(raw: string): string {
  * GET /api/gateway-config - Read the gateway configuration
  * GET /api/gateway-config?action=schema - Get the config JSON schema
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
   const action = request.nextUrl.searchParams.get('action')
 
   if (action === 'schema') {
@@ -72,7 +66,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.error({ err }, 'Failed to read gateway config')
     return NextResponse.json({ error: 'Failed to read config. Check server logs for details.' }, { status: 500 })
   }
-}
+})
 
 async function getSchema(): Promise<NextResponse> {
   const controller = new AbortController()
@@ -107,13 +101,7 @@ async function getSchema(): Promise<NextResponse> {
  *
  * Body: { updates: { "path.to.key": value, ... }, hash?: string }
  */
-export async function PUT(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const action = request.nextUrl.searchParams.get('action')
 
   if (action === 'apply') {
@@ -196,11 +184,14 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     })
   } catch (err: unknown) {
     logger.error({ err }, 'Failed to update gateway config')
-    return NextResponse.json({ error: 'Failed to update config. Check server logs for details.' }, { status: 500 })
+    return NextResponse.json({ error: `Failed to update config: ${getErrorMessage(err)}` }, { status: 500 })
   }
-}
+})
 
-async function applyConfig(request: NextRequest, auth: AuthSession): Promise<NextResponse> {
+async function applyConfig(
+  request: NextRequest,
+  auth: { user: { username: string; id: number } },
+): Promise<NextResponse> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
   try {
@@ -238,7 +229,10 @@ async function applyConfig(request: NextRequest, auth: AuthSession): Promise<Nex
   }
 }
 
-async function updateSystem(request: NextRequest, auth: AuthSession): Promise<NextResponse> {
+async function updateSystem(
+  request: NextRequest,
+  auth: { user: { username: string; id: number } },
+): Promise<NextResponse> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
   try {

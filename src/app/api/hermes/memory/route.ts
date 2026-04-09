@@ -1,16 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getHermesMemory } from '@/lib/hermes-memory'
 
 /**
  * GET /api/hermes/memory — Returns Hermes memory file contents
  * Read-only bridge: MC reads from ~/.hermes/memories/
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   const result = getHermesMemory()
-
   return NextResponse.json(result)
-}
+})

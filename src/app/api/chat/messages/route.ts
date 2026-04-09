@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { handleGetMessages } from './get-handler'
 import { handlePostMessage } from './post-handler'
 
@@ -7,10 +8,10 @@ import { handlePostMessage } from './post-handler'
  * GET  → get-handler.ts  (list/filter messages)
  * POST → post-handler.ts (create + optional gateway forward)
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  return handleGetMessages(request)
-}
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, (request, auth) =>
+  handleGetMessages(request, auth)
+)
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  return handlePostMessage(request)
-}
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, (request, auth) =>
+  handlePostMessage(request, auth)
+)

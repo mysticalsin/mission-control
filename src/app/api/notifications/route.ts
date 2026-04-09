@@ -1,8 +1,7 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getDatabase, Notification } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit';
+import { apiGuard } from '@/lib/api-guard';
 import { validateBody, notificationActionSchema } from '@/lib/validation';
 import { logger } from '@/lib/logger';
 
@@ -15,13 +14,7 @@ interface CommentDetailRow { id: number; content: string | null; task_id: number
  * GET /api/notifications - Get notifications for a specific recipient
  * Query params: recipient, unread_only, type, limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const { searchParams } = new URL(request.url);
@@ -141,19 +134,13 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/notifications error');
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * PUT /api/notifications - Mark notifications as read
  * Body: { ids: number[] } or { recipient: string } (mark all as read)
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -200,19 +187,13 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/notifications error');
     return NextResponse.json({ error: 'Failed to update notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * DELETE /api/notifications - Delete notifications
  * Body: { ids: number[] } or { recipient: string, olderThan: number }
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -255,19 +236,13 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/notifications error');
     return NextResponse.json({ error: 'Failed to delete notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * POST /api/notifications/mark-delivered - Mark notifications as delivered to agent
  * Body: { agent: string }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -308,4 +283,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/notifications error');
     return NextResponse.json({ error: 'Failed to process notification action' }, { status: 500 });
   }
-}
+})

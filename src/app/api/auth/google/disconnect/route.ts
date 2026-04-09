@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { extractClientIp } from '@/lib/rate-limit'
 
-export async function POST(request: Request) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, auth) => {
   const user = auth.user
 
   if (user.provider !== 'google') {
@@ -41,4 +38,4 @@ export async function POST(request: Request) {
   })
 
   return NextResponse.json({ ok: true })
-}
+})

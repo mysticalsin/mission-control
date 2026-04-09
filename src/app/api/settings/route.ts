@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { validateBody, updateSettingsSchema } from '@/lib/validation'
 
 interface SettingRow {
@@ -60,10 +59,7 @@ const settingDefinitions: Record<string, { category: string; description: string
 /**
  * GET /api/settings - List all settings (grouped by category)
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth): Promise<NextResponse> => {
   const db = getDatabase()
   const rows = db.prepare('SELECT key, value, description, category, updated_by, updated_at FROM settings ORDER BY category, key').all() as SettingRow[]
   const stored = new Map(rows.map(r => [r.key, r]))
@@ -115,19 +111,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json({ settings, grouped })
-}
+})
 
 /**
  * PUT /api/settings - Update one or more settings
  * Body: { settings: { key: value, ... } }
  */
-export async function PUT(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth): Promise<NextResponse> => {
   const result = await validateBody(request, updateSettingsSchema)
   if ('error' in result) return result.error
   const body = result.data
@@ -174,18 +164,12 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   })
 
   return NextResponse.json({ updated, count: updated.length })
-}
+})
 
 /**
  * DELETE /api/settings?key=... - Reset a setting to default
  */
-export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth): Promise<NextResponse> => {
   let reqBody: Record<string, unknown>
   try { reqBody = await request.json() as Record<string, unknown> } catch {
     return NextResponse.json({ error: 'Request body required' }, { status: 400 })
@@ -215,4 +199,4 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   })
 
   return NextResponse.json({ reset: key, default_value: settingDefinitions[key]?.default ?? null })
-}
+})

@@ -1,25 +1,14 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { createTenantDecommissionJob } from '@/lib/super-admin'
 
 /**
  * POST /api/super/tenants/[id]/decommission
  * Body: { dry_run?: boolean, remove_linux_user?: boolean, remove_state_dirs?: boolean, reason?: string }
  */
-export async function POST(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
-  const params = await context.params
-  const tenantId = Number(params.id)
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
+  const tenantId = Number(new URL(request.url).pathname.split('/').at(-2))
   if (!Number.isInteger(tenantId) || tenantId <= 0) {
     return NextResponse.json({ error: 'Invalid tenant id' }, { status: 400 })
   }
@@ -37,4 +26,4 @@ export async function POST(
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) || 'Failed to queue tenant decommission job' }, { status: 400 })
   }
-}
+})

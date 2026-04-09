@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { heavyLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import {
   searchRegistry,
   installFromRegistry,
@@ -15,13 +14,7 @@ const VALID_TARGETS = ['user-agents', 'user-codex', 'project-agents', 'project-c
  * GET /api/skills/registry?source=clawhub&q=terraform
  * Proxied search — server-side only, rate-limited.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = heavyLimiter(request)
-  if (limited) return limited
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const source = searchParams.get('source') as RegistrySource
   const query = searchParams.get('q') || ''
@@ -35,19 +28,13 @@ export async function GET(request: NextRequest) {
 
   const result = await searchRegistry(source, query.trim())
   return NextResponse.json(result)
-}
+})
 
 /**
  * POST /api/skills/registry — Install skill from external registry.
  * Admin-only. Downloads, validates, security-scans, and writes to disk.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = heavyLimiter(request)
-  if (limited) return limited
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const body = await request.json().catch(() => ({}))
   const { source, slug, targetRoot } = body as {
     source?: RegistrySource
@@ -72,16 +59,13 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json(result)
-}
+})
 
 /**
  * PUT /api/skills/registry — Security-check content without installing.
  * Useful for preview/audit before install.
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, _auth) => {
   const body = await request.json().catch(() => ({}))
   const content = typeof body?.content === 'string' ? body.content : ''
 
@@ -91,6 +75,6 @@ export async function PUT(request: NextRequest) {
 
   const report = checkSkillSecurity(content)
   return NextResponse.json({ security: report })
-}
+})
 
 export const dynamic = 'force-dynamic'

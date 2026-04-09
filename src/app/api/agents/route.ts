@@ -5,60 +5,56 @@ import { eventBus } from '@/lib/event-bus';
 import { getTemplate, buildAgentConfig } from '@/lib/agent-templates';
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace } from '@/lib/agent-sync';
 import { logAuditEvent } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
-import { mutationLimiter } from '@/lib/rate-limit';
 import { logger } from '@/lib/logger';
 import { validateBody, createAgentSchema } from '@/lib/validation';
 import { runOpenClaw } from '@/lib/command';
 import { config as appConfig } from '@/lib/config';
 import { resolveWithin } from '@/lib/paths';
 import path from 'node:path';
+import { apiGuard } from '@/lib/api-guard';
 
 /**
  * GET /api/agents - List all agents with optional filtering
  * Query params: status, role, limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const { searchParams } = new URL(request.url);
     const workspaceId = auth.user.workspace_id ?? 1;
-    
+
     // Parse query parameters
     const status = searchParams.get('status');
     const role = searchParams.get('role');
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200);
     const offset = parseInt(searchParams.get('offset') || '0');
-    
+
     // Build dynamic query
     let query = 'SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE workspace_id = ?';
     const params: SqlParam[] = [workspaceId];
-    
+
     if (status) {
       query += ' AND status = ?';
       params.push(status);
     }
-    
+
     if (role) {
       query += ' AND role = ?';
       params.push(role);
     }
-    
+
     query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
-    
+
     const stmt = db.prepare(query);
     const agents = stmt.all(...params) as Agent[];
-    
+
     // Parse JSON config field
     const agentsWithParsedData = agents.map(agent => ({
       ...agent,
       config: enrichAgentConfigFromWorkspace(agent.config ? JSON.parse(agent.config) : {})
     }));
-    
+
     // Get task counts for all listed agents in one query (avoids N+1 queries)
     const agentNames = agentsWithParsedData.map(agent => agent.name).filter(Boolean)
     const taskStatsByAgent = new Map<string, { total: number; assigned: number; in_progress: number; quality_review: number; done: number }>()
@@ -113,7 +109,7 @@ export async function GET(request: NextRequest) {
         }
       };
     });
-    
+
     // Get total count for pagination
     let countQuery = 'SELECT COUNT(*) as total FROM agents WHERE workspace_id = ?';
     const countParams: SqlParam[] = [workspaceId];
@@ -137,18 +133,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/agents error');
     return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 });
   }
-}
+});
 
 /**
  * POST /api/agents - Create a new agent
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -227,16 +217,16 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    
+
     const now = Math.floor(Date.now() / 1000);
-    
+
     const stmt = db.prepare(`
       INSERT INTO agents (
-        name, role, session_key, soul_content, status, 
+        name, role, session_key, soul_content, status,
         created_at, updated_at, config, workspace_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
     const dbResult = stmt.run(
       name,
       finalRole,
@@ -250,7 +240,7 @@ export async function POST(request: NextRequest) {
     );
 
     const agentId = dbResult.lastInsertRowid as number;
-    
+
     // Log activity
     db_helpers.logActivity(
       'agent_created',
@@ -267,7 +257,7 @@ export async function POST(request: NextRequest) {
       },
       workspaceId
     );
-    
+
     // Fetch the created agent
     const createdAgent = db
       .prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?')
@@ -319,18 +309,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/agents error');
     return NextResponse.json({ error: 'Failed to create agent' }, { status: 500 });
   }
-}
+});
 
 /**
  * PUT /api/agents - Update agent status (bulk operation for status updates)
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -340,69 +324,69 @@ export async function PUT(request: NextRequest) {
     if (body.name) {
       // Single agent update
       const { name, status, last_activity, config, session_key, soul_content, role } = body;
-      
+
       const agent = db
         .prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?')
         .get(name, workspaceId) as Agent;
       if (!agent) {
         return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
       }
-      
+
       const now = Math.floor(Date.now() / 1000);
-      
+
       // Build dynamic update query
       const fieldsToUpdate = [];
       const params: SqlParam[] = [];
-      
+
       if (status !== undefined) {
         fieldsToUpdate.push('status = ?');
         params.push(status);
-        
+
         fieldsToUpdate.push('last_seen = ?');
         params.push(now);
       }
-      
+
       if (last_activity !== undefined) {
         fieldsToUpdate.push('last_activity = ?');
         params.push(last_activity);
       }
-      
+
       if (config !== undefined) {
         fieldsToUpdate.push('config = ?');
         params.push(JSON.stringify(config));
       }
-      
+
       if (session_key !== undefined) {
         fieldsToUpdate.push('session_key = ?');
         params.push(session_key);
       }
-      
+
       if (soul_content !== undefined) {
         fieldsToUpdate.push('soul_content = ?');
         params.push(soul_content);
       }
-      
+
       if (role !== undefined) {
         fieldsToUpdate.push('role = ?');
         params.push(role);
       }
-      
+
       fieldsToUpdate.push('updated_at = ?');
       params.push(now);
       params.push(name, workspaceId);
-      
+
       if (fieldsToUpdate.length === 1) { // Only updated_at
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
       }
-      
+
       const stmt = db.prepare(`
-        UPDATE agents 
+        UPDATE agents
         SET ${fieldsToUpdate.join(', ')}
         WHERE name = ? AND workspace_id = ?
       `);
-      
+
       stmt.run(...params);
-      
+
       // Log status change if status was updated
       if (status !== undefined && status !== agent.status) {
         db_helpers.logActivity(
@@ -438,4 +422,4 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/agents error');
     return NextResponse.json({ error: 'Failed to update agent' }, { status: 500 });
   }
-}
+});

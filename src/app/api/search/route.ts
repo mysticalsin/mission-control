@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { readLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { searchEntities, type SearchEntityType } from '@/lib/search-engine'
 
@@ -17,13 +16,7 @@ const EMPTY_RESPONSE = {
  * GET /api/search?q=<query>&types=agent,task,memory&limit=20
  * Semantic cross-entity search powered by FTS5 (keyword fallback).
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   const { searchParams } = new URL(request.url)
   const q = searchParams.get('q')?.trim() ?? ''
 
@@ -46,7 +39,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { status: 500 },
     )
   }
-}
+})
 
 /** Parse comma-separated type list; unknown values are silently dropped. */
 function parseTypes(raw: string | null): SearchEntityType[] {
@@ -55,3 +48,6 @@ function parseTypes(raw: string | null): SearchEntityType[] {
   const valid = requested.filter(t => ALL_TYPES.includes(t))
   return valid.length > 0 ? valid : ALL_TYPES
 }
+
+// Suppress unused variable warning — EMPTY_RESPONSE is a documented constant for consumers
+void EMPTY_RESPONSE

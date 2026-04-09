@@ -1,14 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { listWorkspacesForTenant } from '@/lib/workspaces'
 import { logger } from '@/lib/logger'
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const tenantId = auth.user.tenant_id ?? 1
@@ -21,18 +17,12 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Failed to fetch workspaces' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/workspaces - Create a new workspace
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const tenantId = auth.user.tenant_id ?? 1
@@ -79,4 +69,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/workspaces error')
     return NextResponse.json({ error: 'Failed to create workspace' }, { status: 500 })
   }
-}
+})

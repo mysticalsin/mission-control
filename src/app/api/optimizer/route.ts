@@ -1,8 +1,7 @@
-import { type NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { validateBody } from '@/lib/validation'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { HillClimbingOptimizer } from '@/lib/hill-climbing'
 import { bridgeComparisonToPattern } from '@/lib/hill-climbing-feedback-bridge'
@@ -47,15 +46,7 @@ const postBodySchema = z.discriminatedUnion('action', [
 // GET /api/optimizer — list comparisons for an operation
 // ---------------------------------------------------------------------------
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const rateLimited = readLimiter(req)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(req, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (req, auth) => {
   const { searchParams } = new URL(req.url)
   const operationName = searchParams.get('operation') ?? ''
   const workspaceId = auth.user.workspace_id
@@ -72,21 +63,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     logger.error({ err }, 'Optimizer GET failed')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // POST /api/optimizer — create | record outcome | evaluate
 // ---------------------------------------------------------------------------
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  const rateLimited = mutationLimiter(req)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(req, 'operator')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (req, auth) => {
   const validated = await validateBody(req, postBodySchema)
   if ('error' in validated) return validated.error
 
@@ -98,7 +81,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     logger.error({ err }, 'Optimizer POST failed')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // Action dispatcher

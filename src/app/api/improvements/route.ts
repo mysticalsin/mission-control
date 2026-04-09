@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { selfImprovingEngine } from '@/lib/self-improving'
 import { logger } from '@/lib/logger'
 import { validateBody } from '@/lib/validation'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { z } from 'zod'
 
 /** Valid values for the suggestion status query parameter */
@@ -57,15 +56,7 @@ const postBodySchema = z.discriminatedUnion('type', [
 // GET /api/improvements
 // ---------------------------------------------------------------------------
 
-export async function GET(request: NextRequest) {
-  const limited = readLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const workspaceId = auth.user.workspace_id ?? 1
     const { searchParams } = new URL(request.url)
@@ -121,21 +112,13 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     )
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // POST /api/improvements
 // ---------------------------------------------------------------------------
 
-export async function POST(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const parsed = await validateBody(request, postBodySchema)
   if ('error' in parsed) return parsed.error
 
@@ -152,7 +135,7 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     )
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // Action dispatcher (keeps POST handler small)

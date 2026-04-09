@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import {
   ensureTenantWorkspaceAccess,
@@ -12,13 +12,7 @@ function formatTicketRef(prefix?: string | null, num?: number | null): string | 
   return `${prefix}-${String(num).padStart(3, '0')}`
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -31,7 +25,7 @@ export async function GET(
       ipAddress: forwardedFor,
       userAgent: request.headers.get('user-agent'),
     })
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-2) ?? ''
     const projectId = Number.parseInt(id, 10)
     if (!Number.isFinite(projectId)) {
       return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
@@ -76,4 +70,4 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/projects/[id]/tasks error')
     return NextResponse.json({ error: 'Failed to fetch project tasks' }, { status: 500 })
   }
-}
+})

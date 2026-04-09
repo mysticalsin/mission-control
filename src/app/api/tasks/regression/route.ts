@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { readLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
@@ -107,13 +106,7 @@ function buildWindowStats(
   }
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const workspaceId = auth.user.workspace_id ?? 1
     const now = Math.floor(Date.now() / 1000)
@@ -186,4 +179,4 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, 'GET /api/tasks/regression error')
     return NextResponse.json({ error: 'Failed to compute regression metrics' }, { status: 500 })
   }
-}
+})

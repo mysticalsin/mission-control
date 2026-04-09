@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
@@ -16,16 +15,10 @@ interface WorkspaceRow {
 /**
  * GET /api/workspaces/[id] - Get a single workspace
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1)
     const tenantId = auth.user.tenant_id ?? 1
 
     const workspace = db.prepare(
@@ -48,24 +41,15 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/workspaces/[id] error')
     return NextResponse.json({ error: 'Failed to fetch workspace' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/workspaces/[id] - Update workspace name
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1)
     const tenantId = auth.user.tenant_id ?? 1
     const body = await request.json()
     const { name } = body
@@ -103,24 +87,15 @@ export async function PUT(
     logger.error({ err: error }, 'PUT /api/workspaces/[id] error')
     return NextResponse.json({ error: 'Failed to update workspace' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/workspaces/[id] - Delete a workspace (moves agents to default workspace)
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1)
     const tenantId = auth.user.tenant_id ?? 1
     const workspaceId = Number(id)
 
@@ -186,4 +161,4 @@ export async function DELETE(
     logger.error({ err: error }, 'DELETE /api/workspaces/[id] error')
     return NextResponse.json({ error: 'Failed to delete workspace' }, { status: 500 })
   }
-}
+})

@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 export interface HandoffChainRun {
@@ -21,18 +20,11 @@ export interface HandoffChainRun {
  * POST /api/handoff-chains/[id]/run — create a new run record for the chain.
  * Actual async execution is out of scope; this returns the created run id.
  */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const { id } = await params
+    // Extract chain id from path: /api/handoff-chains/[id]/run
+    const segments = new URL(request.url).pathname.split('/')
+    const id = segments.at(-2) ?? ''
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const chainId = parseInt(id, 10)
@@ -63,4 +55,4 @@ export async function POST(
     logger.error({ err: error }, 'POST /api/handoff-chains/[id]/run error')
     return NextResponse.json({ error: 'Failed to create chain run' }, { status: 500 })
   }
-}
+})

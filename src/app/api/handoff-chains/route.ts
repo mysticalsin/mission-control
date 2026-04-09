@@ -1,8 +1,7 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 export interface HandoffStep {
@@ -37,10 +36,7 @@ function parseChain(chain: HandoffChain): HandoffChainParsed {
 /**
  * GET /api/handoff-chains — list all chains for the workspace
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -55,18 +51,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, 'GET /api/handoff-chains error')
     return NextResponse.json({ error: 'Failed to fetch handoff chains' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/handoff-chains — create a new chain
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const body = await request.json() as { name?: unknown; description?: unknown; steps?: unknown }
     const { name, description, steps } = body
@@ -111,4 +101,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, 'POST /api/handoff-chains error')
     return NextResponse.json({ error: 'Failed to create handoff chain' }, { status: 500 })
   }
-}
+})

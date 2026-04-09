@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 import {
@@ -11,10 +11,7 @@ import {
 /**
  * GET /api/gnap — GNAP sync status
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (_request, _auth) => {
   const gnapConfig = config.gnap
   if (!gnapConfig.enabled) {
     return NextResponse.json({ enabled: false })
@@ -32,15 +29,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err }, 'GET /api/gnap error')
     return NextResponse.json({ error: 'Failed to get GNAP status' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/gnap?action=init|sync — GNAP management
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const gnapConfig = config.gnap
   if (!gnapConfig.enabled) {
     return NextResponse.json({ error: 'GNAP is not enabled' }, { status: 400 })
@@ -67,4 +61,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err, action }, 'POST /api/gnap error')
     return NextResponse.json({ error: 'GNAP operation failed' }, { status: 500 })
   }
-}
+})

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { agentTaskLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
@@ -74,11 +74,12 @@ function priorityRankSql() {
  * Query params:
  * - agent: required agent name (or use x-agent-name header)
  * - max_capacity: optional integer 1..20 (default 1)
+ *
+ * Uses agentTaskLimiter (per-agent rate limiter) instead of the standard read limiter —
+ * apiGuard rate limiting is disabled so the custom limiter runs first inside the handler.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'none' }, async (request, auth) => {
+  // Apply agent-specific rate limiter before processing (not in LIMITER_MAP, so handled here)
   const rateLimited = agentTaskLimiter(request)
   if (rateLimited) return rateLimited
 
@@ -181,4 +182,4 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, 'GET /api/tasks/queue error')
     return NextResponse.json({ error: 'Failed to poll task queue' }, { status: 500 })
   }
-}
+})

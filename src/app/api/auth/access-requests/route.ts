@@ -1,9 +1,9 @@
 import { randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { createUser, getUserFromRequest , requireRole } from '@/lib/auth'
+import { createUser, getUserFromRequest } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { validateBody, accessRequestActionSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 
 interface AccessRequestRow {
   id: number
@@ -68,10 +68,7 @@ function ensureUniqueUsername(base: string): string {
   return candidate
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const user = getUserFromRequest(request)
   if (!user || user.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
@@ -103,16 +100,13 @@ export async function GET(request: NextRequest) {
     : db.prepare('SELECT id, provider, email, provider_user_id, display_name, avatar_url, status, requested_at, last_attempt_at, attempt_count, reviewed_by, reviewed_at, review_note, approved_user_id FROM access_requests WHERE status = ? ORDER BY last_attempt_at DESC, id DESC').all(status)
 
   return NextResponse.json({ requests: rows })
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const admin = getUserFromRequest(request)
   if (!admin || admin.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
 
   const result = await validateBody(request, accessRequestActionSchema)
   if ('error' in result) return result.error
@@ -188,4 +182,4 @@ export async function POST(request: NextRequest) {
   })
 
   return NextResponse.json({ ok: true, user })
-}
+})

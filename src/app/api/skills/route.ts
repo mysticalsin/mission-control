@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { resolveWithin } from '@/lib/paths'
 import { checkSkillSecurity } from '@/lib/skill-registry'
 
@@ -203,10 +202,7 @@ function getSkillsFromDB(): SkillSummary[] | null {
   }
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const roots = getSkillRoots()
   const { searchParams } = new URL(request.url)
   const mode = searchParams.get('mode')
@@ -316,15 +312,9 @@ export async function GET(request: NextRequest) {
     groups: bySource,
     total: deduped.size,
   })
-}
+})
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const roots = getSkillRoots()
   const body = await request.json().catch(() => ({}))
   const root = getRootBySource(roots, body?.source)
@@ -339,15 +329,9 @@ export async function POST(request: NextRequest) {
   await mkdir(root.path, { recursive: true })
   const { skillPath, skillDocPath } = await upsertSkill(root, name, content)
   return NextResponse.json({ ok: true, source: root.source, name, skillPath, skillDocPath })
-}
+})
 
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const roots = getSkillRoots()
   const body = await request.json().catch(() => ({}))
   const root = getRootBySource(roots, body?.source)
@@ -361,15 +345,9 @@ export async function PUT(request: NextRequest) {
   await mkdir(root.path, { recursive: true })
   const { skillPath, skillDocPath } = await upsertSkill(root, name, content)
   return NextResponse.json({ ok: true, source: root.source, name, skillPath, skillDocPath })
-}
+})
 
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const roots = getSkillRoots()
   const root = getRootBySource(roots, searchParams.get('source'))
@@ -380,6 +358,6 @@ export async function DELETE(request: NextRequest) {
 
   const { skillPath } = await deleteSkill(root, name)
   return NextResponse.json({ ok: true, source: root.source, name, skillPath })
-}
+})
 
 export const dynamic = 'force-dynamic'

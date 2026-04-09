@@ -1,88 +1,82 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, Message } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 /**
  * GET /api/chat/messages/[id] - Get a single message
  */
-export async function GET(
+export function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+): Promise<NextResponse> {
+  return apiGuard({ role: 'viewer', rateLimit: 'read' }, async (req, auth) => {
+    try {
+      const db = getDatabase()
+      const { id } = await params
+      const workspaceId = auth.user.workspace_id ?? 1
 
-  try {
-    const db = getDatabase()
-    const { id } = await params
-    const workspaceId = auth.user.workspace_id ?? 1
+      const message = db
+        .prepare('SELECT id, conversation_id, from_agent, to_agent, content, message_type, metadata, read_at, created_at, workspace_id FROM messages WHERE id = ? AND workspace_id = ?')
+        .get(parseInt(id), workspaceId) as Message | undefined
 
-    const message = db
-      .prepare('SELECT id, conversation_id, from_agent, to_agent, content, message_type, metadata, read_at, created_at, workspace_id FROM messages WHERE id = ? AND workspace_id = ?')
-      .get(parseInt(id), workspaceId) as Message | undefined
-
-    if (!message) {
-      return NextResponse.json({ error: 'Message not found' }, { status: 404 })
-    }
-
-    return NextResponse.json({
-      message: {
-        ...message,
-        metadata: message.metadata ? JSON.parse(message.metadata) : null
+      if (!message) {
+        return NextResponse.json({ error: 'Message not found' }, { status: 404 })
       }
-    })
-  } catch (error) {
-    logger.error({ err: error }, 'GET /api/chat/messages/[id] error')
-    return NextResponse.json({ error: 'Failed to fetch message' }, { status: 500 })
-  }
+
+      return NextResponse.json({
+        message: {
+          ...message,
+          metadata: message.metadata ? JSON.parse(message.metadata) : null
+        }
+      })
+    } catch (error) {
+      logger.error({ err: error }, 'GET /api/chat/messages/[id] error')
+      return NextResponse.json({ error: 'Failed to fetch message' }, { status: 500 })
+    }
+  })(request)
 }
 
 /**
  * PATCH /api/chat/messages/[id] - Mark message as read
  */
-export async function PATCH(
+export function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+): Promise<NextResponse> {
+  return apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (req, auth) => {
+    try {
+      const db = getDatabase()
+      const { id } = await params
+      const workspaceId = auth.user.workspace_id ?? 1
+      const body = await req.json()
 
-  const limited = mutationLimiter(request)
-  if (limited) return limited
+      const message = db
+        .prepare('SELECT id, conversation_id, from_agent, to_agent, content, message_type, metadata, read_at, created_at, workspace_id FROM messages WHERE id = ? AND workspace_id = ?')
+        .get(parseInt(id), workspaceId) as Message | undefined
 
-  try {
-    const db = getDatabase()
-    const { id } = await params
-    const workspaceId = auth.user.workspace_id ?? 1
-    const body = await request.json()
-
-    const message = db
-      .prepare('SELECT id, conversation_id, from_agent, to_agent, content, message_type, metadata, read_at, created_at, workspace_id FROM messages WHERE id = ? AND workspace_id = ?')
-      .get(parseInt(id), workspaceId) as Message | undefined
-
-    if (!message) {
-      return NextResponse.json({ error: 'Message not found' }, { status: 404 })
-    }
-
-    if (body.read) {
-      const now = Math.floor(Date.now() / 1000)
-      db.prepare('UPDATE messages SET read_at = ? WHERE id = ? AND workspace_id = ?').run(now, parseInt(id), workspaceId)
-    }
-
-    const updated = db
-      .prepare('SELECT id, conversation_id, from_agent, to_agent, content, message_type, metadata, read_at, created_at, workspace_id FROM messages WHERE id = ? AND workspace_id = ?')
-      .get(parseInt(id), workspaceId) as Message
-
-    return NextResponse.json({
-      message: {
-        ...updated,
-        metadata: updated.metadata ? JSON.parse(updated.metadata) : null
+      if (!message) {
+        return NextResponse.json({ error: 'Message not found' }, { status: 404 })
       }
-    })
-  } catch (error) {
-    logger.error({ err: error }, 'PATCH /api/chat/messages/[id] error')
-    return NextResponse.json({ error: 'Failed to update message' }, { status: 500 })
-  }
+
+      if (body.read) {
+        const now = Math.floor(Date.now() / 1000)
+        db.prepare('UPDATE messages SET read_at = ? WHERE id = ? AND workspace_id = ?').run(now, parseInt(id), workspaceId)
+      }
+
+      const updated = db
+        .prepare('SELECT id, conversation_id, from_agent, to_agent, content, message_type, metadata, read_at, created_at, workspace_id FROM messages WHERE id = ? AND workspace_id = ?')
+        .get(parseInt(id), workspaceId) as Message
+
+      return NextResponse.json({
+        message: {
+          ...updated,
+          metadata: updated.metadata ? JSON.parse(updated.metadata) : null
+        }
+      })
+    } catch (error) {
+      logger.error({ err: error }, 'PATCH /api/chat/messages/[id] error')
+      return NextResponse.json({ error: 'Failed to update message' }, { status: 500 })
+    }
+  })(request)
 }

@@ -1,9 +1,8 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { runCommand } from '@/lib/command'
 
 function isAllowedDirectory(input: string): boolean {
@@ -25,13 +24,7 @@ function isAllowedDirectory(input: string): boolean {
  * Body: { cwd: string }
  * Opens a new local Terminal window at the given working directory.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const body = await request.json().catch(() => ({}))
   const cwd = typeof body?.cwd === 'string' ? body.cwd.trim() : ''
   if (!cwd) {
@@ -47,6 +40,6 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     return NextResponse.json({ error: getErrorMessage(error) || 'Failed to open Terminal' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

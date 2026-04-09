@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { access, readFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 
 async function findFirstReadable(paths: string[]): Promise<string | null> {
   for (const p of paths) {
@@ -17,10 +17,7 @@ async function findFirstReadable(paths: string[]): Promise<string | null> {
   return null
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   const cwd = process.cwd()
   const home = homedir()
   const candidates = [
@@ -48,6 +45,6 @@ export async function GET(request: NextRequest) {
     content,
     candidates,
   })
-}
+})
 
 export const dynamic = 'force-dynamic'

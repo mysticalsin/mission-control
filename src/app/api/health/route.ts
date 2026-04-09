@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { selfHealingEngine } from '@/lib/self-healing'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 
 /**
  * Strip raw error messages from diagnosis strings for non-admin callers.
@@ -19,11 +19,11 @@ function sanitizeDiagnosis(diagnosis: string): string {
  *
  * Requires viewer role for basic status; admin gets full details including
  * raw diagnosis strings that may contain error messages.
+ *
+ * WHY: This route cannot use apiGuard because unauthenticated callers must
+ * still receive a minimal liveness probe — apiGuard would reject them with 401.
  */
 export async function GET(request: NextRequest) {
-  const limited = readLimiter(request)
-  if (limited) return limited
-
   const auth = requireRole(request, 'viewer')
 
   // Unauthenticated callers get a minimal liveness probe
@@ -72,15 +72,7 @@ export async function GET(request: NextRequest) {
  *   { "action": "reset_circuit", "service": "db" } - Reset a circuit breaker
  *   { "action": "prune", "maxAgeSeconds": 86400 }  - Prune old health records
  */
-export async function POST(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   try {
     const body = await parseRequestBody(request)
     if (!body) {
@@ -119,7 +111,7 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
 async function parseRequestBody(
   request: NextRequest

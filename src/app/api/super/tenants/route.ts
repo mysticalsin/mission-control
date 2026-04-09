@@ -1,31 +1,21 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { createTenantAndBootstrapJob, listTenants } from '@/lib/super-admin'
 import { logger } from '@/lib/logger'
 
 /**
  * GET /api/super/tenants - List tenants and latest provisioning status
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   return NextResponse.json({ tenants: listTenants() })
-}
+})
 
 /**
  * POST /api/super/tenants - Create tenant and queue bootstrap job
  * SECURITY: Validates input schema before forwarding to bootstrap (CRITICAL-6 fix)
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const body = await request.json()
 
@@ -67,4 +57,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/super/tenants error')
     return NextResponse.json({ error: 'Failed to create tenant bootstrap job. Check server logs.' }, { status: 400 })
   }
-}
+})

@@ -1,7 +1,7 @@
 import { SqlParam } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 interface ConversationRow {
@@ -29,10 +29,7 @@ interface LastMessageRow {
  * GET /api/chat/conversations - List conversations derived from messages
  * Query params: agent (filter by participant), limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -122,4 +119,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/chat/conversations error')
     return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 })
   }
-}
+})

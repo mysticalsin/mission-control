@@ -1,11 +1,10 @@
 import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config, ensureDirExists } from '@/lib/config'
 import { join, dirname } from 'path'
 import { readdirSync, statSync, unlinkSync } from 'fs'
-import { heavyLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { runOpenClaw } from '@/lib/command'
 
@@ -15,10 +14,7 @@ const MAX_BACKUPS = 10
 /**
  * GET /api/backup - List existing backups (admin only)
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   ensureDirExists(BACKUP_DIR)
 
   try {
@@ -39,18 +35,12 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.json({ backups: [], count: 0 })
   }
-}
+})
 
 /**
  * POST /api/backup - Create a new backup (admin only)
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = heavyLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const target = request.nextUrl.searchParams.get('target')
 
   // Gateway state backup via `openclaw backup create`
@@ -129,18 +119,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'Backup failed')
     return NextResponse.json({ error: 'Backup failed. Check server logs for details.' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/backup?name=<filename> - Delete a specific backup (admin only)
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   let body: Record<string, unknown>
   try { body = await request.json() as Record<string, unknown> } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
   const name = typeof body['name'] === 'string' ? body['name'] : null
@@ -166,7 +150,7 @@ export async function DELETE(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Backup not found' }, { status: 404 })
   }
-}
+})
 
 function pruneOldBackups() {
   try {

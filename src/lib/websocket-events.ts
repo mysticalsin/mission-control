@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 import { type GatewayFrame, type GatewayMessage } from './websocket-types'
 import type { JsonValue } from '../store/shared-types'
-import { type Session, type LogEntry, type CronJob, type TokenUsage, type ChatMessage, type Notification } from '@/index'
+import { type Session, type LogEntry, type CronJob, type TokenUsage, type ChatMessage, type Notification } from '@/store'
 import { type ExecApprovalRequest } from '@/store/slices/task-slice'
 import { normalizeModel } from '@/lib/utils'
 import { createClientLogger } from '@/lib/client-logger'

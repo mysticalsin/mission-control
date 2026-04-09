@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 export interface HandoffChainRunWithName {
@@ -23,10 +23,7 @@ export interface HandoffChainRunWithName {
  *   chain_id — optional filter by chain
  *   limit     — max rows, default 20
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -68,4 +65,4 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, 'GET /api/handoff-chains/runs error')
     return NextResponse.json({ error: 'Failed to fetch chain runs' }, { status: 500 })
   }
-}
+})

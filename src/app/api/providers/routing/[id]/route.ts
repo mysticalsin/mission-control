@@ -1,6 +1,6 @@
 import { getErrorMessage } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 
 interface PatchBody {
@@ -29,17 +29,11 @@ interface RoutingRule {
  * Partially updates a routing rule. Only supplied fields are modified.
  * Admin only — used by the ProviderFailoverPanel for inline edits.
  */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PATCH = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const db = getDatabase()
 
-  const { id: rawId } = await params
+  const rawId = new URL(request.url).pathname.split('/').at(-1) ?? ''
   const id = Number(rawId)
   if (isNaN(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
 
@@ -111,23 +105,17 @@ export async function PATCH(
       { status: 500 },
     )
   }
-}
+})
 
 /**
  * DELETE /api/providers/routing/[id]
  * Removes a routing rule by id. Admin only.
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const db = getDatabase()
 
-  const { id: rawId } = await params
+  const rawId = new URL(request.url).pathname.split('/').at(-1) ?? ''
   const id = Number(rawId)
   if (isNaN(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
 
@@ -147,7 +135,7 @@ export async function DELETE(
       { status: 500 },
     )
   }
-}
+})
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

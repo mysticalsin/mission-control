@@ -1,9 +1,8 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
-import { heavyLimiter } from '@/lib/rate-limit'
 import { countStaleGatewaySessions, pruneGatewaySessionsOlderThan } from '@/lib/sessions'
 
 interface CleanupResult {
@@ -16,10 +15,7 @@ interface CleanupResult {
 /**
  * GET /api/cleanup - Show retention policy and what would be cleaned
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const now = Math.floor(Date.now() / 1000)
@@ -76,19 +72,13 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ retention: config.retention, preview })
-}
+})
 
 /**
  * POST /api/cleanup - Run cleanup (admin only)
  * Body: { dry_run?: boolean }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = heavyLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const body = await request.json().catch(() => ({}))
   const dryRun = body.dry_run === true
 
@@ -185,7 +175,7 @@ export async function POST(request: NextRequest) {
     total_deleted: totalDeleted,
     results,
   })
-}
+})
 
 function getRetentionTargets() {
   const ret = config.retention

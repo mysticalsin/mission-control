@@ -1,5 +1,5 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 
 /** Node.js child_process errors include stderr and message */
 interface ExecError { stderr?: Buffer | string; message?: string }
@@ -7,7 +7,8 @@ import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { requireRole, getUserFromRequest } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
+import { getUserFromRequest } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
@@ -220,9 +221,7 @@ function discoverOsUsers(): OsUser[] {
  * Returns discovered OS users cross-referenced with existing tenants.
  * Users already linked to a tenant have linked_tenant_id set.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
 
   const users = discoverOsUsers()
 
@@ -245,7 +244,7 @@ export async function GET(request: NextRequest) {
   } catch {}
 
   return NextResponse.json({ users, platform: os.platform() })
-}
+})
 
 /**
  * POST /api/super/os-users - Create a new OS-level user and register as tenant (admin only)
@@ -255,9 +254,7 @@ export async function GET(request: NextRequest) {
  *
  * Body: { username, display_name, password?, gateway_mode?: boolean, gateway_port?, owner_gateway? }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
 
   const currentUser = getUserFromRequest(request)
   const actor = currentUser?.username || 'system'
@@ -431,4 +428,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: e }, 'POST /api/super/os-users error')
     return NextResponse.json({ error: 'Failed to create organization. Check server logs for details.' }, { status: 500 })
   }
-}
+})

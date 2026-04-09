@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { nextIncompleteStepIndex, parseCompletedSteps, shouldShowOnboarding, markStepCompleted } from '@/lib/onboarding-state'
@@ -57,9 +57,7 @@ function writeUserOnboardingSetting(key: OnboardingSettingKey, value: string, ac
   setOnboardingSetting(scopedOnboardingKey(key, actor), value, actor)
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
 
   try {
     const completed = readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completed, auth.user.username) === 'true'
@@ -91,11 +89,9 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'Onboarding GET error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const body = await request.json()
@@ -147,4 +143,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'Onboarding POST error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

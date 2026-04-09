@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 
@@ -27,10 +26,7 @@ async function gatewayFetch(
   }
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action') || 'status'
 
@@ -89,15 +85,9 @@ export async function GET(request: NextRequest) {
     logger.error({ err }, 'debug: unexpected error')
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action')
 
@@ -147,4 +137,4 @@ export async function POST(request: NextRequest) {
     logger.warn({ err, path }, 'debug: gateway call failed')
     return NextResponse.json({ error: 'Gateway unreachable', path }, { status: 502 })
   }
-}
+})

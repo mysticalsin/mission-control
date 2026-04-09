@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { runSecurityScan, FIX_SAFETY, type CheckSeverity, type FixSafety, type Check } from '@/lib/security-scan'
 
@@ -34,10 +34,7 @@ function isFixableInScope(checkId: string, scope: FixScope, force: boolean): boo
   return false
 }
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   let body: AgentScanFixRequest
   try {
     body = await request.json()
@@ -183,7 +180,7 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'Agent security scan error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 function buildSummary(
   applied: FixResult[],

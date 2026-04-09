@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { readLimiter } from '@/lib/rate-limit'
 
 interface ExecutionTrace {
   id: number
@@ -28,23 +27,13 @@ interface ReplayBookmark {
   created_at: number
 }
 
-interface RouteContext {
-  params: Promise<{ taskId: string }>
-}
-
 /**
  * GET /api/exec-replay/trace/[taskId]
  * Fetch execution trace steps for a task, joined with any bookmarks.
  */
-export async function GET(request: NextRequest, context: RouteContext): Promise<NextResponse> {
-  const limit = readLimiter(request)
-  if (limit) return limit
-
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
-  const { taskId } = await context.params
+  const taskId = new URL(request.url).pathname.split('/').at(-1) ?? ''
   const taskIdNum = parseInt(taskId, 10)
 
   if (Number.isNaN(taskIdNum)) {
@@ -69,4 +58,4 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   `).all(taskIdNum, workspaceId) as ReplayBookmark[]
 
   return NextResponse.json({ success: true, data: { steps, bookmarks } })
-}
+})

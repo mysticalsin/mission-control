@@ -1,6 +1,6 @@
 import { getErrorMessage } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 
 interface HealthLogRow {
@@ -42,10 +42,7 @@ interface RecordBody {
  * Returns aggregated health data per provider (last 50 rows each).
  * Admin only — drives the Health Monitor section of ProviderFailoverPanel.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   const db = getDatabase()
 
   try {
@@ -74,17 +71,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { status: 500 },
     )
   }
-}
+})
 
 /**
  * POST /api/providers/health
  * Records a single health check result.
  * Admin only — called by monitoring logic or manual triggers.
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const db = getDatabase()
 
   let body: RecordBody
@@ -126,7 +120,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 500 },
     )
   }
-}
+})
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

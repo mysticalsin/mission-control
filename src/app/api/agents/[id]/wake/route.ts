@@ -1,20 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { runOpenClaw } from '@/lib/command'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const resolvedParams = await params
-    const agentId = resolvedParams.id
-    const workspaceId = auth.user.workspace_id ?? 1;
+    const url = new URL(request.url)
+    const agentId = url.pathname.split('/').at(-2) ?? ''
+    const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json().catch(() => ({}))
     const customMessage =
       typeof body?.message === 'string' ? body.message.trim() : ''
@@ -57,10 +51,10 @@ export async function POST(
     return NextResponse.json({
       success: true,
       session_key: agent.session_key,
-      stdout: stdout.trim()
+      stdout: stdout.trim(),
     })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/agents/[id]/wake error')
     return NextResponse.json({ error: 'Failed to wake agent' }, { status: 500 })
   }
-}
+})

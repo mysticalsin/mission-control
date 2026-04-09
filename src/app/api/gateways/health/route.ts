@@ -1,7 +1,7 @@
 import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from "next/server"
-import { requireRole } from "@/lib/auth"
-import { getDatabase } from "@/lib/db"
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
+import { getDatabase } from '@/lib/db'
 
 function ensureGatewaysTable(db: ReturnType<typeof getDatabase>) {
   db.exec(`
@@ -160,10 +160,7 @@ function buildGatewayProbeUrl(host: string, port: number): string | null {
  * POST /api/gateways/health - Server-side health probe for all gateways
  * Probes gateways from the server where loopback addresses are reachable.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, "viewer")
-  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (_request, _auth) => {
   const db = getDatabase()
   ensureGatewaysTable(db)
   const gateways = db.prepare("SELECT id, name, host, port, token, is_primary, status, last_seen, latency, sessions_count, agents_count, created_at, updated_at FROM gateways ORDER BY is_primary DESC, name ASC").all() as GatewayEntry[]
@@ -265,4 +262,4 @@ export async function POST(request: NextRequest) {
   })()
 
   return NextResponse.json({ results, probed_at: Date.now() })
-}
+})

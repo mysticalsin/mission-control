@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { validateBody } from '@/lib/validation'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import {
   getLearningStats,
@@ -81,15 +80,7 @@ const postBodySchema = z.discriminatedUnion('action', [
 // GET /api/learning
 // ---------------------------------------------------------------------------
 
-export async function GET(request: NextRequest) {
-  const rateLimited = readLimiter(request)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id
   const { searchParams } = new URL(request.url)
   const mode = searchParams.get('mode')
@@ -115,7 +106,7 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     )
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // GET handlers
@@ -189,15 +180,7 @@ function handleNovelCheckRequest(
 // POST /api/learning
 // ---------------------------------------------------------------------------
 
-export async function POST(request: NextRequest) {
-  const rateLimited = mutationLimiter(request)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const validated = await validateBody(request, postBodySchema)
   if ('error' in validated) return validated.error
 
@@ -212,7 +195,7 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     )
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // POST action dispatcher

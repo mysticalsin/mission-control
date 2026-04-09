@@ -1,45 +1,38 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, db_helpers } from '@/lib/db';
-import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
-import { join, dirname, isAbsolute, resolve } from 'path';
-import { config } from '@/lib/config';
-import { resolveWithin } from '@/lib/paths';
-import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace';
-import { requireRole } from '@/lib/auth';
-import { mutationLimiter } from '@/lib/rate-limit';
-import { logger } from '@/lib/logger';
+import { NextRequest, NextResponse } from 'next/server'
+import { getDatabase, db_helpers } from '@/lib/db'
+import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs'
+import { join, dirname } from 'path'
+import { config } from '@/lib/config'
+import { resolveWithin } from '@/lib/paths'
+import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace'
+import { apiGuard } from '@/lib/api-guard'
+import { logger } from '@/lib/logger'
 
-function resolveAgentWorkspacePath(workspace: string): string {
-  if (isAbsolute(workspace)) return resolve(workspace)
-  if (!config.openclawStateDir) throw new Error('OPENCLAW_STATE_DIR not configured')
-  return resolveWithin(config.openclawStateDir, workspace)
+type AgentRow = {
+  id: number; name: string; role: string; session_key: string | null; soul_content: string | null
+  status: string; last_seen: number | null; last_activity: string | null
+  created_at: number; updated_at: number; config: string | null
+  workspace_id: number; source: string | null; content_hash: string | null; workspace_path: string | null
+}
+
+function resolveAgentById(db: ReturnType<typeof getDatabase>, agentId: string, workspaceId: number): AgentRow | undefined {
+  return (isNaN(Number(agentId))
+    ? db.prepare('SELECT id, name, role, session_key, soul_content, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
+    : db.prepare('SELECT id, name, role, session_key, soul_content, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)) as AgentRow | undefined
 }
 
 /**
  * GET /api/agents/[id]/soul - Get agent's SOUL content
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
-    const db = getDatabase();
-    const resolvedParams = await params;
-    const agentId = resolvedParams.id;
-    const workspaceId = auth.user.workspace_id ?? 1;
-    
-    type AgentRow = { id: number; name: string; role: string; session_key: string | null; soul_content: string | null; status: string; last_seen: number | null; last_activity: string | null; created_at: number; updated_at: number; config: string | null; workspace_id: number; source: string | null; content_hash: string | null; workspace_path: string | null }
-    // Get agent by ID or name
-    const agent = (isNaN(Number(agentId))
-      ? db.prepare('SELECT id, name, role, session_key, soul_content, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
-      : db.prepare('SELECT id, name, role, session_key, soul_content, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)) as AgentRow | undefined
+    const db = getDatabase()
+    const url = new URL(request.url)
+    const agentId = url.pathname.split('/').at(-2) ?? ''
+    const workspaceId = auth.user.workspace_id ?? 1
 
-    if (!agent) {
-      return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
-    }
+    const agent = resolveAgentById(db, agentId, workspaceId)
+    if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     // Try reading soul.md from workspace first, fall back to DB
     let soulContent = ''
@@ -57,106 +50,84 @@ export async function GET(
       logger.warn({ err, agent: agent.name }, 'Failed to read soul.md from workspace')
     }
 
-    // Fall back to database value
     if (!soulContent && agent.soul_content) {
       soulContent = agent.soul_content
       source = 'database'
     }
 
-    const templatesPath = config.soulTemplatesDir;
-    let availableTemplates: string[] = [];
+    const templatesPath = config.soulTemplatesDir
+    let availableTemplates: string[] = []
 
     try {
       if (templatesPath && existsSync(templatesPath)) {
-        const files = readdirSync(templatesPath);
+        const files = readdirSync(templatesPath)
         availableTemplates = files
           .filter(file => file.endsWith('.md'))
-          .map(file => file.replace('.md', ''));
+          .map(file => file.replace('.md', ''))
       }
     } catch (error) {
-      logger.warn({ err: error }, 'Could not read soul templates directory');
+      logger.warn({ err: error }, 'Could not read soul templates directory')
     }
 
     return NextResponse.json({
-      agent: {
-        id: agent.id,
-        name: agent.name,
-        role: agent.role
-      },
+      agent: { id: agent.id, name: agent.name, role: agent.role },
       soul_content: soulContent,
       source,
       available_templates: availableTemplates,
-      updated_at: agent.updated_at
-    });
+      updated_at: agent.updated_at,
+    })
   } catch (error) {
-    logger.error({ err: error }, 'GET /api/agents/[id]/soul error');
-    return NextResponse.json({ error: 'Failed to fetch SOUL content' }, { status: 500 });
+    logger.error({ err: error }, 'GET /api/agents/[id]/soul error')
+    return NextResponse.json({ error: 'Failed to fetch SOUL content' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/agents/[id]/soul - Update agent's SOUL content
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const db = getDatabase();
-    const resolvedParams = await params;
-    const agentId = resolvedParams.id;
-    const workspaceId = auth.user.workspace_id ?? 1;
-    const body = await request.json();
-    const { soul_content, template_name } = body;
-    
-    type AgentRowPut = { id: number; name: string; role: string; session_key: string | null; soul_content: string | null; status: string; last_seen: number | null; last_activity: string | null; created_at: number; updated_at: number; config: string | null; workspace_id: number; source: string | null; content_hash: string | null; workspace_path: string | null }
-    // Get agent by ID or name
-    const agent = (isNaN(Number(agentId))
-      ? db.prepare('SELECT id, name, role, session_key, soul_content, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
-      : db.prepare('SELECT id, name, role, session_key, soul_content, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)) as AgentRowPut | undefined
+    const db = getDatabase()
+    const url = new URL(request.url)
+    const agentId = url.pathname.split('/').at(-2) ?? ''
+    const workspaceId = auth.user.workspace_id ?? 1
+    const body = await request.json()
+    const { soul_content, template_name } = body
 
-    if (!agent) {
-      return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
-    }
+    const agent = resolveAgentById(db, agentId, workspaceId)
+    if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
-    let newSoulContent = soul_content;
-    
+    let newSoulContent = soul_content
+
     // If template_name is provided, load from template
     if (template_name) {
       if (!config.soulTemplatesDir) {
-        return NextResponse.json({ error: 'Templates directory not configured' }, { status: 500 });
+        return NextResponse.json({ error: 'Templates directory not configured' }, { status: 500 })
       }
-      let templatePath: string;
+      let templatePath: string
       try {
-        templatePath = resolveWithin(config.soulTemplatesDir, `${template_name}.md`);
-      } catch (pathError) {
-        return NextResponse.json({ error: 'Invalid template name' }, { status: 400 });
+        templatePath = resolveWithin(config.soulTemplatesDir, `${template_name}.md`)
+      } catch {
+        return NextResponse.json({ error: 'Invalid template name' }, { status: 400 })
       }
-      
+
       try {
         if (existsSync(templatePath)) {
-          const templateContent = readFileSync(templatePath, 'utf8');
-          // Replace placeholders with agent info
+          const templateContent = readFileSync(templatePath, 'utf8')
           newSoulContent = templateContent
             .replace(/{{AGENT_NAME}}/g, agent.name)
             .replace(/{{AGENT_ROLE}}/g, agent.role)
-            .replace(/{{TIMESTAMP}}/g, new Date().toISOString());
+            .replace(/{{TIMESTAMP}}/g, new Date().toISOString())
         } else {
-          return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+          return NextResponse.json({ error: 'Template not found' }, { status: 404 })
         }
       } catch (error) {
-        logger.error({ err: error }, 'Error loading soul template');
-        return NextResponse.json({ error: 'Failed to load template' }, { status: 500 });
+        logger.error({ err: error }, 'Error loading soul template')
+        return NextResponse.json({ error: 'Failed to load template' }, { status: 500 })
       }
     }
-    
-    const now = Math.floor(Date.now() / 1000);
+
+    const now = Math.floor(Date.now() / 1000)
 
     // Write to workspace file if available
     let savedToWorkspace = false
@@ -174,16 +145,12 @@ export async function PUT(
       logger.warn({ err, agent: agent.name }, 'Failed to write soul.md to workspace, saving to DB only')
     }
 
-    // Update SOUL content in DB
-    const updateStmt = db.prepare(`
+    db.prepare(`
       UPDATE agents
       SET soul_content = ?, updated_at = ?
       WHERE ${isNaN(Number(agentId)) ? 'name' : 'id'} = ? AND workspace_id = ?
-    `);
+    `).run(newSoulContent, now, agentId, workspaceId)
 
-    updateStmt.run(newSoulContent, now, agentId, workspaceId);
-
-    // Log activity
     db_helpers.logActivity(
       'agent_soul_updated',
       'agent',
@@ -194,94 +161,72 @@ export async function PUT(
         template_used: template_name || null,
         content_length: newSoulContent ? newSoulContent.length : 0,
         previous_content_length: agent.soul_content ? agent.soul_content.length : 0,
-        saved_to_workspace: savedToWorkspace
+        saved_to_workspace: savedToWorkspace,
       },
       workspaceId
-    );
+    )
 
     return NextResponse.json({
       success: true,
       message: `SOUL content updated for ${agent.name}`,
       soul_content: newSoulContent,
       saved_to_workspace: savedToWorkspace,
-      updated_at: now
-    });
+      updated_at: now,
+    })
   } catch (error) {
-    logger.error({ err: error }, 'PUT /api/agents/[id]/soul error');
-    return NextResponse.json({ error: 'Failed to update SOUL content' }, { status: 500 });
+    logger.error({ err: error }, 'PUT /api/agents/[id]/soul error')
+    return NextResponse.json({ error: 'Failed to update SOUL content' }, { status: 500 })
   }
-}
+})
 
 /**
- * GET /api/agents/[id]/soul/templates - Get available SOUL templates
- * Also handles loading specific template content
+ * PATCH /api/agents/[id]/soul - Get available SOUL templates or a specific template's content
  */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PATCH = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
-    const { searchParams } = new URL(request.url);
-    const templateName = searchParams.get('template');
-    
-    const templatesPath = config.soulTemplatesDir;
-    
+    const { searchParams } = new URL(request.url)
+    const templateName = searchParams.get('template')
+
+    const templatesPath = config.soulTemplatesDir
+
     if (!templatesPath || !existsSync(templatesPath)) {
-      return NextResponse.json({
-        templates: [],
-        message: 'Templates directory not found'
-      });
+      return NextResponse.json({ templates: [], message: 'Templates directory not found' })
     }
-    
+
     if (templateName) {
-      // Get specific template content
-      let templatePath: string;
+      let templatePath: string
       try {
-        templatePath = resolveWithin(templatesPath, `${templateName}.md`);
-      } catch (pathError) {
-        return NextResponse.json({ error: 'Invalid template name' }, { status: 400 });
+        templatePath = resolveWithin(templatesPath, `${templateName}.md`)
+      } catch {
+        return NextResponse.json({ error: 'Invalid template name' }, { status: 400 })
       }
-      
+
       if (!existsSync(templatePath)) {
-        return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+        return NextResponse.json({ error: 'Template not found' }, { status: 404 })
       }
-      
-      const templateContent = readFileSync(templatePath, 'utf8');
-      
-      return NextResponse.json({
-        template_name: templateName,
-        content: templateContent
-      });
+
+      const templateContent = readFileSync(templatePath, 'utf8')
+      return NextResponse.json({ template_name: templateName, content: templateContent })
     }
-    
-    // List all available templates
-    const files = readdirSync(templatesPath);
+
+    const files = readdirSync(templatesPath)
     const templates = files
       .filter(file => file.endsWith('.md'))
       .map(file => {
-        const name = file.replace('.md', '');
-        const templatePath = join(templatesPath, file);
-        const content = readFileSync(templatePath, 'utf8');
-        
-        // Extract first line as description
-        const firstLine = content.split('\n')[0];
-        const description = firstLine.startsWith('#') 
-          ? firstLine.replace(/^#+\s*/, '') 
-          : `${name} template`;
-        
-        return {
-          name,
-          description,
-          size: content.length
-        };
-      });
-    
-    return NextResponse.json({ templates });
+        const name = file.replace('.md', '')
+        const templatePath = join(templatesPath, file)
+        const content = readFileSync(templatePath, 'utf8')
+        const firstLine = content.split('\n')[0]
+        const description = firstLine.startsWith('#')
+          ? firstLine.replace(/^#+\s*/, '')
+          : `${name} template`
+
+        return { name, description, size: content.length }
+      })
+
+    return NextResponse.json({ templates })
   } catch (error) {
-    logger.error({ err: error }, 'PATCH /api/agents/[id]/soul error');
-    return NextResponse.json({ error: 'Failed to fetch templates' }, { status: 500 });
+    logger.error({ err: error }, 'PATCH /api/agents/[id]/soul error')
+    return NextResponse.json({ error: 'Failed to fetch templates' }, { status: 500 })
   }
-}
+})

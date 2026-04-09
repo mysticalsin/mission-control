@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { buildGatewayWebSocketUrl } from '@/lib/gateway-url'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
@@ -10,6 +10,7 @@ import {
   hasGwPathHandler,
   findTailscaleServePort,
 } from '@/lib/tailscale-serve'
+import type { NextRequest } from 'next/server'
 
 interface GatewayEntry {
   id: number
@@ -112,13 +113,7 @@ function ensureTable(db: ReturnType<typeof getDatabase>) {
  * POST /api/gateways/connect
  * Resolves websocket URL and token for a selected gateway without exposing tokens in list payloads.
  */
-export async function POST(request: NextRequest) {
-  // Any authenticated dashboard user may initiate a gateway websocket connect.
-  // Restricting this to operator can cause startup fallback to connect without auth,
-  // which then fails as "device identity required".
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, _auth) => {
   const db = getDatabase()
   ensureTable(db)
 
@@ -172,4 +167,4 @@ export async function POST(request: NextRequest) {
     token,
     token_set: token.length > 0,
   })
-}
+})

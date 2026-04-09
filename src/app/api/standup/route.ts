@@ -1,7 +1,7 @@
 import { type SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getDatabase, db_helpers } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
+import { apiGuard } from '@/lib/api-guard';
 import { logger } from '@/lib/logger';
 
 interface AgentRow {
@@ -41,9 +41,7 @@ interface BlockedTaskRow {
  * POST /api/standup/generate - Generate daily standup report
  * Body: { date?: string, agents?: string[] }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -246,15 +244,13 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/standup/generate error');
     return NextResponse.json({ error: 'Failed to generate standup' }, { status: 500 });
   }
-}
+})
 
 /**
  * GET /api/standup/history - Get previous standup reports
  * Query params: limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -297,4 +293,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/standup/history error');
     return NextResponse.json({ error: 'Failed to fetch standup history' }, { status: 500 });
   }
-}
+})

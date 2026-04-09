@@ -1,14 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 
 /**
  * GET /api/webhooks/verify-docs - Returns webhook signature verification documentation
  * No secrets exposed. Accessible to any authenticated user (viewer+).
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   return NextResponse.json({
     algorithm: 'HMAC-SHA256',
     header: 'X-MC-Signature',
@@ -37,4 +34,4 @@ function verifySignature(secret, rawBody, signatureHeader) {
 // const isValid = verifySignature(MY_SECRET, req.rawBody, req.headers['x-mc-signature']);
 `.trim(),
   })
-}
+})

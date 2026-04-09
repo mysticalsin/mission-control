@@ -1,16 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { readLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { readDocsContent } from '@/lib/docs-knowledge'
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const path = (searchParams.get('path') || '').trim()
@@ -36,4 +29,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/docs/content error')
     return NextResponse.json({ error: 'Failed to load doc content' }, { status: 500 })
   }
-}
+})

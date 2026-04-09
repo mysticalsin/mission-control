@@ -1,9 +1,8 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { validateBody, createPipelineSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 export interface PipelineStep {
@@ -27,9 +26,7 @@ export interface Pipeline {
 /**
  * GET /api/pipelines - List all pipelines with enriched step data
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
 
   try {
     const db = getDatabase()
@@ -66,18 +63,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/pipelines error')
     return NextResponse.json({ error: 'Failed to fetch pipelines' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/pipelines - Create a pipeline
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const result = await validateBody(request, createPipelineSchema)
     if ('error' in result) return result.error
@@ -123,14 +114,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/pipelines error')
     return NextResponse.json({ error: 'Failed to create pipeline' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/pipelines - Update a pipeline
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase()
@@ -175,14 +164,12 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/pipelines error')
     return NextResponse.json({ error: 'Failed to update pipeline' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/pipelines - Delete a pipeline
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase()
@@ -200,4 +187,4 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/pipelines error')
     return NextResponse.json({ error: 'Failed to delete pipeline' }, { status: 500 })
   }
-}
+})

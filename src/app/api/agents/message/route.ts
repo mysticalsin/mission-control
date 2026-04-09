@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { runOpenClaw } from '@/lib/command'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { validateBody, createMessageSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { scanForInjection } from '@/lib/injection-guard'
 import { scanForSecrets } from '@/lib/secret-scanner'
 import { logSecurityEvent } from '@/lib/security-events'
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const result = await validateBody(request, createMessageSchema)
     if ('error' in result) return result.error
@@ -41,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getDatabase()
-    const workspaceId = auth.user.workspace_id ?? 1;
+    const workspaceId = auth.user.workspace_id ?? 1
     const agent = db
       .prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?')
       .get(to, workspaceId) as { id: number; name: string; role: string; session_key: string | null; status: string; last_seen: number | null; last_activity: number | null; created_at: number; updated_at: number; config: string | null; workspace_id: number; source: string | null; content_hash: string | null; workspace_path: string | null } | undefined
@@ -56,14 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     await runOpenClaw(
-      [
-        'gateway',
-        'sessions_send',
-        '--session',
-        agent.session_key,
-        '--message',
-        `Message from ${from}: ${message}`
-      ],
+      ['gateway', 'sessions_send', '--session', agent.session_key, '--message', `Message from ${from}: ${message}`],
       { timeoutMs: 10000 }
     )
 
@@ -92,4 +78,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/agents/message error')
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })
   }
-}
+})

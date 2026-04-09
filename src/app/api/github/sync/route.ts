@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { pullFromGitHub } from '@/lib/github-sync-engine'
 import { getSyncPollerStatus } from '@/lib/github-sync-poller'
@@ -9,10 +8,7 @@ import { getSyncPollerStatus } from '@/lib/github-sync-poller'
 /**
  * GET /api/github/sync — sync status for all GitHub-linked projects.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -40,19 +36,13 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/github/sync error')
     return NextResponse.json({ error: 'Failed to fetch sync status' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/github/sync — trigger sync manually.
  * Body: { action: 'trigger', project_id: number } or { action: 'trigger-all' }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   let body: { action?: string; project_id?: unknown }
   try {
     body = await request.json()
@@ -117,4 +107,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/github/sync error')
     return NextResponse.json({ error: 'Sync trigger failed' }, { status: 500 })
   }
-}
+})

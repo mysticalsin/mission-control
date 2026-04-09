@@ -1,10 +1,9 @@
-import { getErrorMessage, toError, type ProcessError } from '@/lib/types/sql'
+import { getErrorMessage, type ProcessError } from '@/lib/types/sql'
 import { NextResponse } from 'next/server'
 import { execFileSync } from 'child_process'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { requireRole } from '@/lib/auth'
-import { heavyLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { APP_VERSION } from '@/lib/version'
 
@@ -25,17 +24,8 @@ function pnpm(args: string[], cwd: string): string {
   return execFileSync('pnpm', args, { ...EXEC_OPTS, cwd }).trim()
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
-  const auth = requireRole(request, 'admin')
-  if (auth.error) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
-  // Rate-limit update operations — they spawn git/pnpm subprocesses (expensive)
-  const limited = heavyLimiter(request)
-  if (limited) return limited
-
-  const user = auth.user!
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
+  const user = auth.user
   const cwd = process.cwd()
   const steps: { step: string; output: string }[] = []
 
@@ -138,4 +128,4 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 500 }
     )
   }
-}
+})

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 
 interface DiscoveredGateway {
   user: string
@@ -15,10 +15,7 @@ interface DiscoveredGateway {
  * Discovers OpenClaw gateways via systemd services and port scanning.
  * Does not require filesystem access to other users' configs.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   const discovered: DiscoveredGateway[] = []
 
   // Parse systemd services for openclaw-gateway instances
@@ -95,4 +92,4 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ gateways: discovered })
-}
+})

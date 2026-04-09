@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
-import { requireRole } from "@/lib/auth"
-import { getDatabase } from "@/lib/db"
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
+import { getDatabase } from '@/lib/db'
 
 interface GatewayHealthLogRow {
   gateway_id: number
@@ -24,10 +24,7 @@ interface GatewayHistory {
   entries: GatewayHistoryEntry[]
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, "viewer")
-  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   const db = getDatabase()
   const rows = db.prepare(`
     SELECT l.gateway_id, g.name AS gateway_name, l.status, l.latency, l.probed_at, l.error
@@ -60,4 +57,4 @@ export async function GET(request: NextRequest) {
 
   const history = Object.values(historyMap)
   return NextResponse.json({ history })
-}
+})

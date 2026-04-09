@@ -1,21 +1,12 @@
-import { getErrorMessage, toError, type ProcessError } from '@/lib/types/sql'
+import { getErrorMessage, type ProcessError } from '@/lib/types/sql'
 import { NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { runOpenClaw } from '@/lib/command'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
-import { heavyLimiter } from '@/lib/rate-limit'
 
-export async function POST(request: Request) {
-  // update runs for up to 5min — cap at 3 invocations per minute per IP
-  const limited = heavyLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (_request, auth) => {
+  // update runs for up to 5min
   let installedBefore: string | null = null
 
   try {
@@ -74,4 +65,4 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-}
+})

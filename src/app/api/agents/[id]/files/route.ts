@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { config } from '@/lib/config'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { resolveWithin } from '@/lib/paths'
 import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace'
 import { logger } from '@/lib/logger'
+import { apiGuard } from '@/lib/api-guard'
 
 const ALLOWED_FILES = new Set([
   'agent.md',
@@ -32,12 +31,6 @@ const FILE_ALIASES: Record<string, string[]> = {
   'USER.md': ['USER.md', 'user.md'],
 }
 
-function resolveAgentWorkspacePath(workspace: string): string {
-  if (isAbsolute(workspace)) return resolve(workspace)
-  if (!config.openclawStateDir) throw new Error('OPENCLAW_STATE_DIR not configured')
-  return resolveWithin(config.openclawStateDir, workspace)
-}
-
 type AgentRow = { id: number; name: string; role: string; session_key: string | null; status: string; last_seen: number | null; last_activity: string | null; created_at: number; updated_at: number; config: string | null; workspace_id: number; source: string | null; content_hash: string | null; workspace_path: string | null }
 
 function getAgentByIdOrName(db: ReturnType<typeof getDatabase>, id: string, workspaceId: number): AgentRow | undefined {
@@ -47,15 +40,10 @@ function getAgentByIdOrName(db: ReturnType<typeof getDatabase>, id: string, work
   return db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as AgentRow | undefined
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-2) ?? ''
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const agent = getAgentByIdOrName(db, id, workspaceId)
@@ -67,7 +55,7 @@ export async function GET(
       return NextResponse.json({ error: 'Agent workspace is not configured' }, { status: 400 })
     }
     const safeWorkspace = candidates[0]
-    const requested = (new URL(request.url).searchParams.get('file') || '').trim()
+    const requested = (url.searchParams.get('file') || '').trim()
     const files = requested
       ? [requested]
       : ['agent.md', 'identity.md', 'soul.md', 'WORKING.md', 'MEMORY.md', 'TOOLS.md', 'AGENTS.md', 'MISSION.md', 'USER.md']
@@ -91,20 +79,12 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/agents/[id]/files error')
     return NextResponse.json({ error: 'Failed to load workspace files' }, { status: 500 })
   }
-}
+})
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-2) ?? ''
     const body = await request.json()
     const file = String(body?.file || '').trim()
     const content = String(body?.content || '')
@@ -156,4 +136,4 @@ export async function PUT(
     logger.error({ err: error }, 'PUT /api/agents/[id]/files error')
     return NextResponse.json({ error: 'Failed to save workspace file' }, { status: 500 })
   }
-}
+})

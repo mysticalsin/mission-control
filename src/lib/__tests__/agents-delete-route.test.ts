@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-const requireRole = vi.fn()
 const runOpenClaw = vi.fn()
 const removeAgentFromConfig = vi.fn()
 const prepare = vi.fn()
 
-vi.mock('@/lib/auth', () => ({
-  requireRole,
+// apiGuard replaced requireRole — mock it to pass through with a fake operator auth context
+vi.mock('@/lib/api-guard', () => ({
+  apiGuard: (_opts: unknown, handler: (req: unknown, auth: unknown) => unknown) =>
+    (req: unknown) => handler(req, { user: { id: 1, username: 'admin', role: 'admin', workspace_id: 1 } }),
 }))
 
 vi.mock('@/lib/command', () => ({
@@ -45,7 +46,6 @@ vi.mock('@/lib/logger', () => ({
 describe('DELETE /api/agents/[id]', () => {
   beforeEach(() => {
     vi.resetModules()
-    requireRole.mockReturnValue({ user: { id: 1, username: 'admin', role: 'admin', workspace_id: 1 } })
     runOpenClaw.mockReset()
     removeAgentFromConfig.mockReset()
     prepare.mockReset()
@@ -73,7 +73,7 @@ describe('DELETE /api/agents/[id]', () => {
       headers: { 'content-type': 'application/json' },
     })
 
-    const response = await DELETE(request, { params: Promise.resolve({ id: '7' }) })
+    const response = await DELETE(request)
     const body = await response.json()
 
     expect(response.status).toBe(200)
@@ -101,7 +101,7 @@ describe('DELETE /api/agents/[id]', () => {
       headers: { 'content-type': 'application/json' },
     })
 
-    const response = await DELETE(request, { params: Promise.resolve({ id: '8' }) })
+    const response = await DELETE(request)
 
     expect(response.status).toBe(200)
     expect(runOpenClaw).toHaveBeenCalledWith(['agents', 'delete', 'adam', '--force'], { timeoutMs: 30000 })
@@ -127,7 +127,7 @@ describe('DELETE /api/agents/[id]', () => {
       headers: { 'content-type': 'application/json' },
     })
 
-    const response = await DELETE(request, { params: Promise.resolve({ id: '9' }) })
+    const response = await DELETE(request)
     const body = await response.json()
 
     expect(response.status).toBe(200)

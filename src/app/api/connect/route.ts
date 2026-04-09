@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { validateBody, connectSchema } from '@/lib/validation'
 import { eventBus } from '@/lib/event-bus'
 import { randomUUID } from 'crypto'
@@ -41,10 +40,7 @@ interface CountRow {
  * Auto-creates agent if name doesn't exist, deactivates previous connections
  * for the same agent, and returns connection details + helper URLs.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const validation = await validateBody(request, connectSchema)
   if ('error' in validation) return validation.error
 
@@ -104,15 +100,12 @@ export async function POST(request: NextRequest) {
     heartbeat_url: `/api/agents/${agentId}/heartbeat`,
     token_report_url: `/api/tokens`,
   })
-}
+})
 
 /**
  * GET /api/connect — List all direct connections
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1;
   const connections = db.prepare(`
@@ -124,18 +117,12 @@ export async function GET(request: NextRequest) {
   `).all(workspaceId)
 
   return NextResponse.json({ connections })
-}
+})
 
 /**
  * DELETE /api/connect — Disconnect by connection_id
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   let body: Record<string, unknown>
   try {
     body = await request.json() as Record<string, unknown>
@@ -185,4 +172,4 @@ export async function DELETE(request: NextRequest) {
   })
 
   return NextResponse.json({ status: 'disconnected', connection_id })
-}
+})

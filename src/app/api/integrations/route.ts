@@ -2,11 +2,10 @@
  * Integration API — slim route handler.
  * All registry data, types, helpers, and sub-handlers live in @/lib/integrations-registry.
  */
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { logAuditEvent } from '@/lib/db'
 import { validateBody, integrationActionSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { getPluginIntegrations } from '@/lib/plugins'
 import {
   buildIntegrationList,
@@ -23,28 +22,19 @@ import {
 // GET /api/integrations — list all integrations with status + redacted values
 // ---------------------------------------------------------------------------
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   const result = await buildIntegrationList()
   // buildIntegrationList returns NextResponse on error, or data object on success
   if (result instanceof NextResponse) return result
   return NextResponse.json(result)
-}
+})
 
 // ---------------------------------------------------------------------------
 // PUT /api/integrations — update/add env vars
 // Body: { vars: { KEY: "value", ... } }
 // ---------------------------------------------------------------------------
 
-export async function PUT(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const body = await request.json().catch(() => null)
   if (!body?.vars || typeof body.vars !== 'object') {
     return NextResponse.json({ error: 'vars object required' }, { status: 400 })
@@ -93,19 +83,13 @@ export async function PUT(request: NextRequest) {
   })
 
   return NextResponse.json({ updated: updatedKeys, count: updatedKeys.length })
-}
+})
 
 // ---------------------------------------------------------------------------
 // DELETE /api/integrations?keys=KEY1,KEY2 — remove env vars
 // ---------------------------------------------------------------------------
 
-export async function DELETE(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const { searchParams } = new URL(request.url)
   const keysParam = searchParams.get('keys')
   if (!keysParam) {
@@ -151,20 +135,14 @@ export async function DELETE(request: NextRequest) {
   })
 
   return NextResponse.json({ removed, count: removed.length })
-}
+})
 
 // ---------------------------------------------------------------------------
 // POST /api/integrations — action dispatcher (test, pull, pull-all)
 // Body: { action: "test"|"pull"|"pull-all", integrationId?: "..." }
 // ---------------------------------------------------------------------------
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const result = await validateBody(request, integrationActionSchema)
   if ('error' in result) return result.error
   const body = result.data
@@ -196,4 +174,4 @@ export async function POST(request: NextRequest) {
   if (body.action === 'pull') return handlePull(integration, request, auth.user)
 
   return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 })
-}
+})

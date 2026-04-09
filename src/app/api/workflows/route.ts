@@ -1,9 +1,8 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { validateBody, createWorkflowSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { scanForInjection } from '@/lib/injection-guard'
 
@@ -26,10 +25,7 @@ export interface WorkflowTemplate {
 /**
  * GET /api/workflows - List all workflow templates
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -47,18 +43,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/workflows error')
     return NextResponse.json({ error: 'Failed to fetch templates' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/workflows - Create a new workflow template
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const result = await validateBody(request, createWorkflowSchema)
     if ('error' in result) return result.error
@@ -117,18 +107,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/workflows error')
     return NextResponse.json({ error: 'Failed to create template' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/workflows - Update a workflow template
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -192,18 +176,12 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/workflows error')
     return NextResponse.json({ error: 'Failed to update template' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/workflows - Delete a workflow template
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -226,4 +204,4 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/workflows error')
     return NextResponse.json({ error: 'Failed to delete template' }, { status: 500 })
   }
-}
+})

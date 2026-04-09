@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
@@ -193,10 +192,7 @@ async function isGatewayReachable(): Promise<boolean> {
  * GET /api/channels - Fetch channel status from the gateway
  * Supports ?action=probe&channel=<name> to probe a specific channel
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action')
 
@@ -276,19 +272,13 @@ export async function GET(request: NextRequest) {
       } satisfies ChannelsSnapshot)
     }
   }
-}
+})
 
 /**
  * POST /api/channels - Platform-specific actions
  * Body: { action: string, ...params }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const body = await request.json().catch(() => null)
   if (!body || !body.action) {
     return NextResponse.json({ error: 'action required' }, { status: 400 })
@@ -428,4 +418,4 @@ export async function POST(request: NextRequest) {
       { status: 502 },
     )
   }
-}
+})

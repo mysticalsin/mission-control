@@ -1,6 +1,6 @@
 import { SqlParam } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 
 interface AuditRow {
@@ -24,10 +24,7 @@ function safeParseJson(str: string): unknown {
  * GET /api/audit - Query audit log (admin only)
  * Query params: action, actor, limit, offset, since, until
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action')
   const actor = searchParams.get('actor')
@@ -77,4 +74,4 @@ export async function GET(request: NextRequest) {
     limit,
     offset,
   })
-}
+})

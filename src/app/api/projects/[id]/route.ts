@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import {
   ensureTenantWorkspaceAccess,
@@ -31,13 +30,7 @@ function toProjectId(raw: string): number {
   return Number.isFinite(id) ? id : NaN
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -50,7 +43,7 @@ export async function GET(
       ipAddress: forwardedFor,
       userAgent: request.headers.get('user-agent'),
     })
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1) ?? ''
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
     const projectScope = db.prepare(`
@@ -86,18 +79,9 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/projects/[id] error')
     return NextResponse.json({ error: 'Failed to fetch project' }, { status: 500 })
   }
-}
+})
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PATCH = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -110,7 +94,7 @@ export async function PATCH(
       ipAddress: forwardedFor,
       userAgent: request.headers.get('user-agent'),
     })
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1) ?? ''
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
     const projectScope = db.prepare(`
@@ -210,18 +194,9 @@ export async function PATCH(
     logger.error({ err: error }, 'PATCH /api/projects/[id] error')
     return NextResponse.json({ error: 'Failed to update project' }, { status: 500 })
   }
-}
+})
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -234,7 +209,7 @@ export async function DELETE(
       ipAddress: forwardedFor,
       userAgent: request.headers.get('user-agent'),
     })
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1) ?? ''
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
     const projectScope = db.prepare(`
@@ -284,4 +259,4 @@ export async function DELETE(
     logger.error({ err: error }, 'DELETE /api/projects/[id] error')
     return NextResponse.json({ error: 'Failed to delete project' }, { status: 500 })
   }
-}
+})

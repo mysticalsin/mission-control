@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 import { resolveWithin } from '@/lib/paths'
@@ -18,10 +18,7 @@ import { callOpenClawGateway } from '@/lib/openclaw-gateway'
  * The session key (e.g. "agent:jarv:cron:task-name") is used to look up
  * the sessionId from the agent's sessions.json, then the JSONL file is read.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const sessionKey = searchParams.get('key') || ''
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200)
@@ -101,7 +98,7 @@ export async function GET(request: NextRequest) {
     logger.warn({ err, sessionKey }, 'Gateway session transcript read failed')
     return NextResponse.json({ messages: [], source: 'gateway', error: 'Failed to read session transcript' })
   }
-}
+})
 
 function extractAgentName(sessionKey: string): string | null {
   const parts = sessionKey.split(':')

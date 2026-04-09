@@ -1,26 +1,23 @@
-import { type SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from "next/server"
-import { getDatabase, Message } from "@/lib/db"
-import { requireRole } from '@/lib/auth'
+import type { SqlParam } from '@/lib/types/sql'
+import { NextRequest, NextResponse } from 'next/server'
+import { getDatabase, Message } from '@/lib/db'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 /**
  * GET /api/agents/comms - Inter-agent communication stats and timeline
  * Query params: limit, offset, since, agent
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const limit = parseInt(searchParams.get("limit") || "100")
-    const offset = parseInt(searchParams.get("offset") || "0")
-    const since = searchParams.get("since")
-    const agent = searchParams.get("agent")
+    const limit = parseInt(searchParams.get('limit') || '100')
+    const offset = parseInt(searchParams.get('offset') || '0')
+    const since = searchParams.get('since')
+    const agent = searchParams.get('agent')
 
     // Session-thread comms feed used by coordinator + runtime sessions
     const commsPredicate = `
@@ -33,8 +30,8 @@ export async function GET(request: NextRequest) {
       )
     `
 
-    const humanNames = ["human", "system", "operator"]
-    const humanPlaceholders = humanNames.map(() => "?").join(",")
+    const humanNames = ['human', 'system', 'operator']
+    const humanPlaceholders = humanNames.map(() => '?').join(',')
 
     // 1. Get timeline messages (page latest rows but render chronologically)
     let messagesWhere = `
@@ -45,11 +42,11 @@ export async function GET(request: NextRequest) {
     const messagesParams: SqlParam[] = [workspaceId]
 
     if (since) {
-      messagesWhere += " AND created_at > ?"
+      messagesWhere += ' AND created_at > ?'
       messagesParams.push(parseInt(since, 10))
     }
     if (agent) {
-      messagesWhere += " AND (from_agent = ? OR to_agent = ?)"
+      messagesWhere += ' AND (from_agent = ? OR to_agent = ?)'
       messagesParams.push(agent, agent)
     }
 
@@ -81,10 +78,10 @@ export async function GET(request: NextRequest) {
     `
     const graphParams: SqlParam[] = [workspaceId, ...humanNames, ...humanNames]
     if (since) {
-      graphQuery += " AND created_at > ?"
+      graphQuery += ' AND created_at > ?'
       graphParams.push(parseInt(since, 10))
     }
-    graphQuery += " GROUP BY from_agent, to_agent ORDER BY message_count DESC"
+    graphQuery += ' GROUP BY from_agent, to_agent ORDER BY message_count DESC'
 
     const edges = db.prepare(graphQuery).all(...graphParams)
 
@@ -119,11 +116,11 @@ export async function GET(request: NextRequest) {
     `
     const countParams: SqlParam[] = [workspaceId]
     if (since) {
-      countQuery += " AND created_at > ?"
+      countQuery += ' AND created_at > ?'
       countParams.push(parseInt(since, 10))
     }
     if (agent) {
-      countQuery += " AND (from_agent = ? OR to_agent = ?)"
+      countQuery += ' AND (from_agent = ? OR to_agent = ?)'
       countParams.push(agent, agent)
     }
     const { total } = db.prepare(countQuery).get(...countParams) as { total: number }
@@ -134,13 +131,13 @@ export async function GET(request: NextRequest) {
         AND ${commsPredicate}
         AND conversation_id LIKE ?
     `
-    const seededParams: SqlParam[] = [workspaceId, "conv-multi-%"]
+    const seededParams: SqlParam[] = [workspaceId, 'conv-multi-%']
     if (since) {
-      seededCountQuery += " AND created_at > ?"
+      seededCountQuery += ' AND created_at > ?'
       seededParams.push(parseInt(since, 10))
     }
     if (agent) {
-      seededCountQuery += " AND (from_agent = ? OR to_agent = ?)"
+      seededCountQuery += ' AND (from_agent = ? OR to_agent = ?)'
       seededParams.push(agent, agent)
     }
     const { seeded } = db.prepare(seededCountQuery).get(...seededParams) as { seeded: number }
@@ -148,10 +145,10 @@ export async function GET(request: NextRequest) {
     const seededCount = seeded || 0
     const liveCount = Math.max(0, total - seededCount)
     const source =
-      total === 0 ? "empty" :
-      liveCount === 0 ? "seeded" :
-      seededCount === 0 ? "live" :
-      "mixed"
+      total === 0 ? 'empty' :
+      liveCount === 0 ? 'seeded' :
+      seededCount === 0 ? 'live' :
+      'mixed'
 
     const parsed = messages.map((msg) => {
       let parsedMetadata: Record<string, unknown> | null = null
@@ -162,10 +159,7 @@ export async function GET(request: NextRequest) {
           parsedMetadata = null
         }
       }
-      return {
-        ...msg,
-        metadata: parsedMetadata,
-      }
+      return { ...msg, metadata: parsedMetadata }
     })
 
     return NextResponse.json({
@@ -175,7 +169,7 @@ export async function GET(request: NextRequest) {
       source: { mode: source, seededCount, liveCount },
     })
   } catch (error) {
-    logger.error({ err: error }, "GET /api/agents/comms error")
-    return NextResponse.json({ error: "Failed to fetch agent communications" }, { status: 500 })
+    logger.error({ err: error }, 'GET /api/agents/comms error')
+    return NextResponse.json({ error: 'Failed to fetch agent communications' }, { status: 500 })
   }
-}
+})

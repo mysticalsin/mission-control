@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { runOpenClaw } from '@/lib/command'
+import { apiGuard } from '@/lib/api-guard'
 
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/openclaw/openclaw/releases/latest'
@@ -16,9 +17,9 @@ function compareSemver(a: string, b: string): number {
   return 0
 }
 
-const headers = { 'Cache-Control': 'public, max-age=3600' }
+const privateHeaders = { 'Cache-Control': 'private, max-age=3600' }
 
-export async function GET() {
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_req: NextRequest) => {
   let installed: string | null = null
 
   try {
@@ -29,14 +30,14 @@ export async function GET() {
     // OpenClaw not installed or not reachable
     return NextResponse.json(
       { installed: null, latest: null, updateAvailable: false },
-      { headers }
+      { headers: privateHeaders }
     )
   }
 
   if (!installed) {
     return NextResponse.json(
       { installed: null, latest: null, updateAvailable: false },
-      { headers }
+      { headers: privateHeaders }
     )
   }
 
@@ -50,7 +51,7 @@ export async function GET() {
     if (!res.ok) {
       return NextResponse.json(
         { installed, latest: null, updateAvailable: false },
-        { headers }
+        { headers: privateHeaders }
       )
     }
 
@@ -67,12 +68,12 @@ export async function GET() {
         releaseNotes: release.body ?? '',
         updateCommand: 'openclaw update --channel stable',
       },
-      { headers }
+      { headers: privateHeaders }
     )
   } catch {
     return NextResponse.json(
       { installed, latest: null, updateAvailable: false },
-      { headers }
+      { headers: privateHeaders }
     )
   }
-}
+})

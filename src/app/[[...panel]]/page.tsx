@@ -117,14 +117,17 @@ export default function Home(): React.ReactElement {
     if (!sessionStorage.getItem(consoleKey)) {
       sessionStorage.setItem(consoleKey, '1')
       if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
         console.log(
           '%c  Stop!  ',
           'color: #fff; background: #e53e3e; font-size: 40px; font-weight: bold; padding: 4px 16px; border-radius: 4px;'
         )
+        // eslint-disable-next-line no-console
         console.log(
           '%cThis is a browser feature intended for developers.\n\nIf someone told you to copy-paste something here to enable a feature or "hack" an account, it is a scam and will give them access to your account.',
           'font-size: 14px; color: #e2e8f0; padding: 8px 0;'
         )
+        // eslint-disable-next-line no-console
         console.log(
           '%cLearn more: https://en.wikipedia.org/wiki/Self-XSS',
           'font-size: 12px; color: #718096;'

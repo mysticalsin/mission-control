@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 
 /**
  * Marketing / Gamma API Proxy
@@ -22,11 +22,8 @@ function gammaHeaders(): Record<string, string> {
 }
 
 // GET /api/marketing/gamma?action=themes
-export async function GET(req: NextRequest) {
-  const auth = requireRole(req, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const action = req.nextUrl.searchParams.get('action')
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (req, _auth) => {
+  const action = new URL(req.url).searchParams.get('action')
 
   if (!getGammaKey()) {
     return NextResponse.json(
@@ -64,12 +61,10 @@ export async function GET(req: NextRequest) {
       { status: 502 },
     )
   }
-}
+})
 
 // POST /api/marketing/gamma — create a generation
-export async function POST(req: NextRequest) {
-  const auth = requireRole(req, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (req, _auth) => {
 
   if (!getGammaKey()) {
     return NextResponse.json(
@@ -135,4 +130,4 @@ export async function POST(req: NextRequest) {
       { status: 502 },
     )
   }
-}
+})

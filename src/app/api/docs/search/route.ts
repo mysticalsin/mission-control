@@ -1,16 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { readLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { searchDocs } from '@/lib/docs-knowledge'
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const query = (searchParams.get('q') || searchParams.get('query') || '').trim()
@@ -26,4 +19,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/docs/search error')
     return NextResponse.json({ error: 'Failed to search docs' }, { status: 500 })
   }
-}
+})

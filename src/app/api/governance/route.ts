@@ -1,8 +1,7 @@
-import { type NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { validateBody } from '@/lib/validation'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { GovernanceGateEngine } from '@/lib/governance'
 
@@ -40,15 +39,7 @@ const ActionSchema = z.discriminatedUnion('action', [EvaluateSchema, UpsertRuleS
 // GET /api/governance
 // ---------------------------------------------------------------------------
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const rateLimited = readLimiter(req)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(req, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (req, auth) => {
   const { searchParams } = new URL(req.url)
   // WHY: workspaceId MUST come from the verified auth token, never from a query param.
   // Accepting it from the URL would allow any authenticated user to read another tenant's data.
@@ -76,21 +67,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     logger.error({ err }, 'Governance GET request failed')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // POST /api/governance
 // ---------------------------------------------------------------------------
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  const rateLimited = mutationLimiter(req)
-  if (rateLimited) return rateLimited
-
-  const auth = requireRole(req, 'operator')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (req, auth) => {
   const validated = await validateBody(req, ActionSchema)
   if ('error' in validated) return validated.error
 
@@ -125,6 +108,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     logger.error({ err }, 'Governance POST request failed')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

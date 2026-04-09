@@ -1,21 +1,17 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { syncClaudeSessions } from '@/lib/claude-sessions'
 import { scanCodexSessions } from '@/lib/codex-sessions'
 import { scanHermesSessions } from '@/lib/hermes-sessions'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 const LOCAL_SESSION_ACTIVE_WINDOW_MS = 90 * 60 * 1000
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   try {
     const gatewaySessions = getAllGatewaySessions()
     const mappedGatewaySessions = mapGatewaySessions(gatewaySessions)
@@ -37,20 +33,14 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'Sessions API error')
     return NextResponse.json({ sessions: [] })
   }
-}
+})
 
 const VALID_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
 const VALID_VERBOSE_LEVELS = ['off', 'on', 'full'] as const
 const VALID_REASONING_LEVELS = ['off', 'on', 'stream'] as const
 const SESSION_KEY_RE = /^[a-zA-Z0-9:_.-]+$/
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const action = searchParams.get('action')
@@ -126,15 +116,9 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'Session POST error')
     return NextResponse.json({ error: getErrorMessage(error) || 'Session action failed' }, { status: 500 })
   }
-}
+})
 
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const body = await request.json()
     const { sessionKey } = body
@@ -159,7 +143,7 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'Session DELETE error')
     return NextResponse.json({ error: getErrorMessage(error) || 'Session deletion failed' }, { status: 500 })
   }
-}
+})
 
 function mapGatewaySessions(gatewaySessions: ReturnType<typeof getAllGatewaySessions>) {
   // Deduplicate by sessionId — OpenClaw tracks cron runs under the same
@@ -207,7 +191,6 @@ function getLocalClaudeSessions() {
     return rows.map((s) => {
       const inputTokens = Number(s['input_tokens'] ?? 0)
       const outputTokens = Number(s['output_tokens'] ?? 0)
-      const total = inputTokens + outputTokens
       const lastMsgRaw = s['last_message_at']
       const lastMsg = lastMsgRaw ? new Date(lastMsgRaw as string).getTime() : 0
       // Trust scanner state first, but fall back to derived recency so UI doesn't

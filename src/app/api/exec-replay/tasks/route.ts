@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { readLimiter } from '@/lib/rate-limit'
 
 export interface TaskSummary {
   task_id: number
@@ -16,13 +15,7 @@ export interface TaskSummary {
  * List distinct tasks that have execution traces, most recent first.
  * Returns up to 50 task summaries for the caller's workspace.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const limit = readLimiter(request)
-  if (limit) return limit
-
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const db = getDatabase()
 
@@ -41,4 +34,4 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   `).all(workspaceId) as TaskSummary[]
 
   return NextResponse.json({ success: true, data: rows })
-}
+})

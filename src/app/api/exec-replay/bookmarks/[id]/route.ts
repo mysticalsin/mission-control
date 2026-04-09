@@ -1,25 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { mutationLimiter } from '@/lib/rate-limit'
-
-interface RouteContext {
-  params: Promise<{ id: string }>
-}
 
 /**
  * DELETE /api/exec-replay/bookmarks/[id]
  * Delete a bookmark by id (operator only). Scoped to the caller's workspace.
  */
-export async function DELETE(request: NextRequest, context: RouteContext): Promise<NextResponse> {
-  const limit = mutationLimiter(request)
-  if (limit) return limit
-
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
-  const { id } = await context.params
+  const id = new URL(request.url).pathname.split('/').at(-1) ?? ''
   const bookmarkId = parseInt(id, 10)
 
   if (Number.isNaN(bookmarkId)) {
@@ -41,4 +30,4 @@ export async function DELETE(request: NextRequest, context: RouteContext): Promi
     .run(bookmarkId, workspaceId)
 
   return NextResponse.json({ success: true })
-}
+})

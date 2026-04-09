@@ -1,9 +1,9 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
+import { getErrorMessage } from '@/lib/types/sql'
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getDatabase, Notification, db_helpers } from '@/lib/db';
 import { runOpenClaw } from '@/lib/command';
-import { requireRole } from '@/lib/auth';
+import { apiGuard } from '@/lib/api-guard';
 import { logger } from '@/lib/logger';
 
 /**
@@ -12,9 +12,7 @@ import { logger } from '@/lib/logger';
  * Polls undelivered notifications and sends them to agents
  * via OpenClaw gateway call agent command
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -187,14 +185,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/notifications/deliver error');
     return NextResponse.json({ error: 'Failed to deliver notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * GET /api/notifications/deliver - Get delivery status and statistics
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -263,7 +259,7 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/notifications/deliver error');
     return NextResponse.json({ error: 'Failed to get delivery status' }, { status: 500 });
   }
-}
+})
 
 /**
  * Format notification for delivery to agent session

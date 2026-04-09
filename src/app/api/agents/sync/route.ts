@@ -1,6 +1,6 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { syncAgentsFromConfig, previewSyncDiff } from '@/lib/agent-sync'
 import { syncLocalAgents } from '@/lib/local-agent-sync'
 import { logger } from '@/lib/logger'
@@ -10,10 +10,7 @@ import { logger } from '@/lib/logger'
  * ?source=local triggers local disk scan instead of openclaw.json sync.
  * Requires admin role.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const { searchParams } = new URL(request.url)
   const source = searchParams.get('source')
 
@@ -34,16 +31,13 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/agents/sync error')
     return NextResponse.json({ error: getErrorMessage(error) || 'Sync failed' }, { status: 500 })
   }
-}
+})
 
 /**
  * GET /api/agents/sync - Preview diff between openclaw.json and MC
  * Shows what would change without writing.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   try {
     const diff = await previewSyncDiff()
     return NextResponse.json(diff)
@@ -51,4 +45,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/agents/sync error')
     return NextResponse.json({ error: getErrorMessage(error) || 'Preview failed' }, { status: 500 })
   }
-}
+})

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import type { Database } from 'better-sqlite3';
+import { apiGuard } from '@/lib/api-guard';
 import { getDatabase } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 
 /**
@@ -20,10 +20,7 @@ import { logger } from '@/lib/logger';
  * Agents should call this before submitting new work to avoid
  * cascading failures and SLO breaches.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -54,7 +51,7 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/workload error');
     return NextResponse.json({ error: 'Failed to fetch workload signals' }, { status: 500 });
   }
-}
+});
 
 // Configurable thresholds for recommendation engine
 function numEnv(name: string, fallback: number): number {

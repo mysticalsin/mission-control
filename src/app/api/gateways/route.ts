@@ -1,8 +1,7 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
+import { getErrorMessage } from '@/lib/types/sql'
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { getDetectedGatewayPort, getDetectedGatewayToken } from '@/lib/gateway-runtime'
 
@@ -45,10 +44,7 @@ function ensureTable(db: ReturnType<typeof getDatabase>) {
 /**
  * GET /api/gateways - List all registered gateways
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   const db = getDatabase()
   ensureTable(db)
 
@@ -70,18 +66,12 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ gateways: redactTokens(gateways) })
-}
+})
 
 /**
  * POST /api/gateways - Add a new gateway
  */
-export async function POST(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const db = getDatabase()
   ensureTable(db)
   const body = await request.json().catch(() => null)
@@ -117,18 +107,12 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ error: getErrorMessage(err) || 'Failed to add gateway' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/gateways - Update a gateway
  */
-export async function PUT(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const db = getDatabase()
   ensureTable(db)
   const body = await request.json().catch(() => null)
@@ -163,20 +147,17 @@ export async function PUT(request: NextRequest) {
 
   db.prepare(`UPDATE gateways SET ${sets.join(', ')} WHERE id = ?`).run(...values)
 
+  // Silence unused auth warning — auth context available if needed for audit log
+  void auth
+
   const updated = db.prepare('SELECT id, name, host, port, token, is_primary, status, last_seen, latency, sessions_count, agents_count, created_at, updated_at FROM gateways WHERE id = ?').get(id) as GatewayEntry
   return NextResponse.json({ gateway: redactToken(updated) })
-}
+})
 
 /**
  * DELETE /api/gateways - Remove a gateway
  */
-export async function DELETE(request: NextRequest) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const db = getDatabase()
   ensureTable(db)
   const body = await request.json().catch(() => null)
@@ -199,7 +180,7 @@ export async function DELETE(request: NextRequest) {
   } catch { /* audit might not exist */ }
 
   return NextResponse.json({ deleted: result.changes > 0 })
-}
+})
 
 function redactToken(gw: GatewayEntry): GatewayEntry & { token_set: boolean } {
   return { ...gw, token: gw.token ? '--------' : '', token_set: !!gw.token }

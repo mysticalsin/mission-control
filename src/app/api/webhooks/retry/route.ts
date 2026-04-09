@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { deliverWebhookPublic } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
 
@@ -23,10 +23,7 @@ interface DeliveryWithWebhookRow {
 /**
  * POST /api/webhooks/retry - Manually retry a failed delivery
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -78,4 +75,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/webhooks/retry error')
     return NextResponse.json({ error: 'Failed to retry delivery' }, { status: 500 })
   }
-}
+})

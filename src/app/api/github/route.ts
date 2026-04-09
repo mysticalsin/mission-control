@@ -1,7 +1,6 @@
 import { getErrorMessage } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { validateBody, githubSyncSchema } from '@/lib/validation'
 import { getGitHubToken, fetchIssues } from '@/lib/github'
@@ -12,10 +11,7 @@ import { handleGitHubStats, handleStatus } from './github-stats'
  * GET /api/github?action=issues&repo=owner/repo&state=open&labels=bug
  * Fetch issues from GitHub for preview before import.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (request, _auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const action = searchParams.get('action')
@@ -48,18 +44,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, 'GET /api/github error')
     return NextResponse.json({ error: getErrorMessage(error) || 'Failed to fetch issues' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/github — Action dispatcher for sync, comment, close, status.
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const validated = await validateBody(request, githubSyncSchema)
   if ('error' in validated) return validated.error
 
@@ -87,4 +77,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     logger.error({ err: error }, `POST /api/github action=${action} error`)
     return NextResponse.json({ error: getErrorMessage(error) || 'GitHub action failed' }, { status: 500 })
   }
-}
+})

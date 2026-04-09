@@ -1,9 +1,8 @@
 import { SqlParam } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { randomBytes } from 'crypto'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { validateBody, createWebhookSchema } from '@/lib/validation'
 
@@ -56,10 +55,7 @@ function isBlockedWebhookUrl(urlStr: string): boolean {
 /**
  * GET /api/webhooks - List all webhooks with delivery stats
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -89,18 +85,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/webhooks error')
     return NextResponse.json({ error: 'Failed to fetch webhooks' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/webhooks - Create a new webhook
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -134,18 +124,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/webhooks error')
     return NextResponse.json({ error: 'Failed to create webhook' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/webhooks - Update a webhook
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -202,18 +186,12 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/webhooks error')
     return NextResponse.json({ error: 'Failed to update webhook' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/webhooks - Delete a webhook
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   let reqBody: Record<string, unknown>
   try { reqBody = await request.json() as Record<string, unknown> } catch {
     return NextResponse.json({ error: 'Request body required' }, { status: 400 })
@@ -241,4 +219,4 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/webhooks error')
     return NextResponse.json({ error: 'Failed to delete webhook' }, { status: 500 })
   }
-}
+})

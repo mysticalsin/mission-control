@@ -10,26 +10,23 @@ interface AgentRow {
 }
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers, logAuditEvent } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace, removeAgentFromConfig } from '@/lib/agent-sync'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 import { runOpenClaw } from '@/lib/command'
+import { apiGuard } from '@/lib/api-guard'
 
 /**
  * GET /api/agents/[id] - Get a single agent by ID or name
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (
+  request,
+  auth
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-1) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1;
 
     let agent
@@ -54,7 +51,7 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/agents/[id] error')
     return NextResponse.json({ error: 'Failed to fetch agent' }, { status: 500 })
   }
-}
+});
 
 /**
  * PUT /api/agents/[id] - Update agent config with unified MC + gateway save
@@ -65,19 +62,14 @@ export async function GET(
  *   write_to_gateway?: boolean - Defaults to true when gateway_config exists
  * }
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (
+  request,
+  auth
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-1) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json()
     const { role, gateway_config, write_to_gateway } = body
@@ -206,24 +198,19 @@ export async function PUT(
     logger.error({ err: error }, 'PUT /api/agents/[id] error')
     return NextResponse.json({ error: getErrorMessage(error) || 'Failed to update agent' }, { status: 500 })
   }
-}
+});
 
 /**
  * DELETE /api/agents/[id] - Delete an agent
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (
+  request,
+  auth
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-1) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1;
     let removeWorkspace = false
     try {
@@ -300,4 +287,4 @@ export async function DELETE(
     logger.error({ err: error }, 'DELETE /api/agents/[id] error')
     return NextResponse.json({ error: 'Failed to delete agent' }, { status: 500 })
   }
-}
+});

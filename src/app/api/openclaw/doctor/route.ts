@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { runOpenClaw } from '@/lib/command'
 import { config } from '@/lib/config'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { archiveOrphanTranscriptsForStateDir } from '@/lib/openclaw-doctor-fix'
 import { parseOpenClawDoctorOutput } from '@/lib/openclaw-doctor'
-import { heavyLimiter, readLimiter } from '@/lib/rate-limit'
 
 function getCommandDetail(error: unknown): { detail: string; code: number | null } {
   const err = error as {
@@ -26,15 +25,7 @@ function isMissingOpenClaw(detail: string): boolean {
   return /enoent|not installed|not reachable|command not found/i.test(detail)
 }
 
-export async function GET(request: Request) {
-  const limited = readLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   try {
     const result = await runOpenClaw(['doctor'], { timeoutMs: 15000 })
     return NextResponse.json(parseOpenClawDoctorOutput(`${result.stdout}\n${result.stderr}`, result.code ?? 0, {
@@ -54,18 +45,10 @@ export async function GET(request: Request) {
       headers: { 'Cache-Control': 'no-store' },
     })
   }
-}
+})
 
-export async function POST(request: Request) {
-  // doctor --fix runs for up to 120s — cap at 3 invocations per minute per IP
-  const limited = heavyLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (_request, auth) => {
+  // doctor --fix runs for up to 120s
   try {
     const progress: Array<{ step: string; detail: string }> = []
 
@@ -155,4 +138,4 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-}
+})

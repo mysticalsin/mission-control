@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { generateWeeklyBrief, type IntelligenceBrief } from '@/lib/intelligence-brief'
 import { eventBus } from '@/lib/event-bus'
@@ -32,12 +32,7 @@ function setCached(workspaceId: number, brief: IntelligenceBrief): void {
 // GET — return brief (from cache or freshly generated)
 // ---------------------------------------------------------------------------
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
   const cached = getCached(workspaceId)
   if (cached) {
@@ -54,18 +49,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const message = err instanceof Error ? err.message : 'Failed to generate brief'
     return NextResponse.json({ error: message }, { status: 500 })
   }
-}
+})
 
 // ---------------------------------------------------------------------------
 // POST — force regenerate (bypasses cache)
 // ---------------------------------------------------------------------------
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (_request, auth) => {
   const workspaceId = auth.user.workspace_id ?? 1
 
   try {
@@ -78,4 +68,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const message = err instanceof Error ? err.message : 'Failed to generate brief'
     return NextResponse.json({ error: message }, { status: 500 })
   }
-}
+})

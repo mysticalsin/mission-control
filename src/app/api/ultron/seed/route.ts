@@ -1,23 +1,15 @@
 import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { ALL_ULTRON_AGENTS } from '@/lib/ultron-agents'
 import { logger } from '@/lib/logger'
-import { heavyLimiter } from '@/lib/rate-limit'
 
 /**
  * POST /api/ultron/seed
  * Seeds the Ultron 9-department C-Suite agent hierarchy into the database.
  * Requires admin authentication.
  */
-export async function POST(request: Request) {
-  const limited = heavyLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (_request, auth) => {
   const user = auth.user
 
   const db = getDatabase()
@@ -91,22 +83,14 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-}
+})
 
 /**
  * GET /api/ultron/seed
  * Returns the current seeding status - how many agents are in DB vs expected.
  * Requires admin role (C2 — prevents non-admin from enumerating agent state).
  */
-export async function GET(request: Request) {
-  const limited = heavyLimiter(request)
-  if (limited) return limited
-
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (_request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
 
@@ -122,4 +106,4 @@ export async function GET(request: Request) {
     missing: ALL_ULTRON_AGENTS.length - existingCount,
     fullySeeded: existingCount === ALL_ULTRON_AGENTS.length,
   })
-}
+})

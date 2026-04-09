@@ -1,8 +1,7 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { existsSync, statSync } from 'node:fs'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { runCommand } from '@/lib/command'
 
 const DEFAULT_DOWNLOAD_URL = 'https://flightdeck.example.com/download'
@@ -49,10 +48,7 @@ function resolveFlightDeckInstallPath(): string | null {
  * GET /api/local/flight-deck
  * Check Flight Deck local installation status.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   const installPath = resolveFlightDeckInstallPath()
   const installed = installPath ? isInstalled(installPath) : false
 
@@ -62,19 +58,13 @@ export async function GET(request: NextRequest) {
     appUrl: getFlightDeckBaseUrl(),
     downloadUrl: DEFAULT_DOWNLOAD_URL,
   })
-}
+})
 
 /**
  * POST /api/local/flight-deck
  * Build a Flight Deck URL for the selected agent/session.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = mutationLimiter(request)
-  if (limited) return limited
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const installPath = resolveFlightDeckInstallPath()
   const installed = installPath ? isInstalled(installPath) : false
   if (!installed) {
@@ -124,6 +114,6 @@ export async function POST(request: NextRequest) {
     url: webUrl.toString(),
     launchUrl: launchUrl.toString(),
   })
-}
+})
 
 export const dynamic = 'force-dynamic'

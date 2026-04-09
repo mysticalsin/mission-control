@@ -1,10 +1,9 @@
-import { getErrorMessage, toError } from '@/lib/types/sql'
+import { getErrorMessage } from '@/lib/types/sql'
 import { SqlParam } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { mutationLimiter } from '@/lib/rate-limit'
-import { createAlertSchema, validateBody } from '@/lib/validation'
+import { createAlertSchema } from '@/lib/validation'
 
 interface AlertRule {
   id: number
@@ -34,10 +33,7 @@ interface ValRow { val: unknown }
 /**
  * GET /api/alerts - List all alert rules
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   try {
@@ -48,18 +44,12 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.json({ rules: [] })
   }
-}
+})
 
 /**
  * POST /api/alerts - Create a new alert rule or evaluate rules
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
 
@@ -117,18 +107,12 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     return NextResponse.json({ error: getErrorMessage(err) || 'Failed to create rule' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/alerts - Update an alert rule
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const body = await request.json().catch(() => null)
@@ -164,18 +148,12 @@ export async function PUT(request: NextRequest) {
     .prepare('SELECT id, name, description, enabled, entity_type, condition_field, condition_operator, condition_value, action_type, action_config, cooldown_minutes, last_triggered_at, trigger_count, created_by, created_at, updated_at, workspace_id FROM alert_rules WHERE id = ? AND workspace_id = ?')
     .get(id, workspaceId) as AlertRule
   return NextResponse.json({ rule: updated })
-}
+})
 
 /**
  * DELETE /api/alerts - Delete an alert rule
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const body = await request.json().catch(() => null)
@@ -195,7 +173,7 @@ export async function DELETE(request: NextRequest) {
   } catch { /* audit table might not exist */ }
 
   return NextResponse.json({ deleted: result.changes > 0 })
-}
+})
 
 /**
  * Evaluate all enabled alert rules against current data

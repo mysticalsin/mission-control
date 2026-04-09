@@ -1,7 +1,7 @@
 import { SqlParam } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, type Message } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import type { User } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
 /** Safe JSON parse that returns null instead of throwing */
@@ -18,10 +18,7 @@ export function safeParseMetadata(raw: string | null | undefined): unknown {
  * GET /api/chat/messages
  * Query params: conversation_id, from_agent, to_agent, limit, offset, since
  */
-export async function handleGetMessages(request: NextRequest): Promise<NextResponse> {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export async function handleGetMessages(request: NextRequest, auth: { user: User }): Promise<NextResponse> {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1

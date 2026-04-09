@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getUserFromRequest, updateUser, requireRole, destroyAllUserSessions } from '@/lib/auth'
+import { getUserFromRequest, updateUser, destroyAllUserSessions } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { verifyPassword } from '@/lib/password'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
 import { extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
+import { apiGuard } from '@/lib/api-guard'
 
-export async function GET(request: Request) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const user = getUserFromRequest(request)
 
   if (!user) {
@@ -29,13 +27,13 @@ export async function GET(request: Request) {
       tenant_id: user.tenant_id ?? 1,
     },
   })
-}
+})
 
 /**
  * PATCH /api/auth/me - Self-service password change and display name update.
  * Body: { current_password, new_password } and/or { display_name }
  */
-export async function PATCH(request: NextRequest) {
+export const PATCH = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, _auth) => {
   const user = getUserFromRequest(request)
   if (!user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -134,4 +132,4 @@ export async function PATCH(request: NextRequest) {
     logger.error({ err: error }, 'PATCH /api/auth/me error')
     return NextResponse.json({ error: 'Failed to update profile' }, { status: 500 })
   }
-}
+})
