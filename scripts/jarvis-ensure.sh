@@ -12,7 +12,8 @@
 
 set -e
 
-JARVIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/src/jarvis"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JARVIS_DIR="$ROOT_DIR/src/jarvis"
 HEALTH_URL="http://localhost:8340/api/health"
 VENV_PYTHON="$JARVIS_DIR/.venv/bin/python"
 FALLBACK_PYTHON="python3"
@@ -59,7 +60,7 @@ else
 fi
 
 # ── 4. Sync auth token to .env ────────────────────────────────────────────────
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$ROOT_DIR"
 echo "[jarvis-ensure] Syncing auth token..."
 node scripts/jarvis-sync-token.mjs
 
