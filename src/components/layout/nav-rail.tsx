@@ -37,7 +37,7 @@ const navGroups: NavGroup[] = [
       { id: 'agents', label: 'Agents', icon: <AgentsIcon />, priority: true, essential: true },
       { id: 'tasks', label: 'Tasks', icon: <TasksIcon />, priority: true, essential: true },
       { id: 'chat', label: 'Chat', icon: <ChatIcon />, priority: false, essential: true },
-      { id: 'jarvis', label: 'JARVIS', icon: <JarvisIcon />, priority: true, essential: false },
+      { id: 'jarvis', label: 'JARVIS', icon: <JarvisIcon />, priority: true, essential: true },
       { id: 'channels', label: 'Channels', icon: <ChannelsIcon />, priority: false },
       { id: 'skills', label: 'Skills', icon: <SkillsIcon />, priority: false },
       { id: 'memory', label: 'Memory', icon: <MemoryIcon />, priority: false },
@@ -81,6 +81,7 @@ const navGroups: NavGroup[] = [
     id: 'workspace',
     label: 'WORKSPACE',
     items: [
+      { id: 'marketing', label: 'Marketing', icon: <PresentationsIcon />, priority: true },
       { id: 'presentations', label: 'Presentations', icon: <PresentationsIcon />, priority: false },
       { id: 'documents', label: 'Documents', icon: <DocumentsIcon />, priority: false },
       { id: 'session-details', label: 'Session Details', icon: <SessionDetailsIcon />, priority: false },

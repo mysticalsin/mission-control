@@ -135,7 +135,9 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set, get) 
   skillsTotal: 0,
   memoryGraphAgents: null,
   securityPosture: undefined,
-  interfaceMode: 'essential',
+  // WHY: 'full' shows all nav tabs by default. 'essential' hides JARVIS and most panels.
+  // Users can switch back to 'essential' in the context-switcher at the bottom of the sidebar.
+  interfaceMode: 'full',
   activeTab: 'overview',
   showOnboarding: false,
   showProjectManagerModal: false,

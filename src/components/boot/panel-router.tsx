@@ -200,6 +200,10 @@ const SemanticSearchPanel = dynamic(
   () => import('@/components/panels/semantic-search-panel').then(m => ({ default: m.SemanticSearchPanel })),
   { loading: () => <PanelSkeleton /> },
 )
+const MarketingPanel = dynamic(
+  () => import('@/components/panels/marketing-panel').then(m => ({ default: m.MarketingPanel })),
+  { loading: () => <PanelSkeleton /> },
+)
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -364,6 +368,7 @@ export function ContentRouter({ tab }: ContentRouterProps): React.ReactElement {
     case 'providers':        return <ProviderFailoverPanel />
     case 'war-room':         return <WarRoomPanel />
     case 'search':           return <SemanticSearchPanel />
+    case 'marketing':        return <MarketingPanel />
     default:                 return renderPluginPanel(tab)
   }
 }

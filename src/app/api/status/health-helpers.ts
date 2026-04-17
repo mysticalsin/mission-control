@@ -187,7 +187,9 @@ export async function getCapabilities(request?: NextRequest) {
 
   const processUser = process.env.MC_DEFAULT_ORG_NAME || os.userInfo().username
 
-  let interfaceMode = 'essential'
+  // WHY: Default to 'full' so all nav tabs (JARVIS, War Room, Pipelines, etc.) are visible
+  // on first login. Users can switch to 'essential' in Settings if they want a minimal UI.
+  let interfaceMode = 'full'
   try {
     const settingsDb = getDatabase()
     const modeRow = settingsDb.prepare("SELECT value FROM settings WHERE key = 'general.interface_mode'").get() as { value: string } | undefined
