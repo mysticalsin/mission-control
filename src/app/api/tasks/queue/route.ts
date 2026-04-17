@@ -1,10 +1,43 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { agentTaskLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 type QueueReason = 'continue_current' | 'assigned' | 'at_capacity' | 'no_tasks_available'
+
+interface TaskRow {
+  id: number
+  title: string
+  description: string | null
+  status: string
+  priority: string
+  assigned_to: string | null
+  created_by: string
+  created_at: number
+  updated_at: number
+  due_date: number | null
+  estimated_hours: number | null
+  actual_hours: number | null
+  tags: string | null
+  metadata: string | null
+  workspace_id: number
+  project_id: number | null
+  project_ticket_no: number | null
+  outcome: string | null
+  error_message: string | null
+  resolution: string | null
+  feedback_rating: number | null
+  feedback_notes: string | null
+  retry_count: number | null
+  completed_at: number | null
+  github_issue_number: number | null
+  github_repo: string | null
+  github_synced_at: number | null
+  github_branch: string | null
+  github_pr_number: number | null
+  github_pr_state: string | null
+}
 
 function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback
@@ -15,7 +48,7 @@ function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
-function mapTaskRow(task: any) {
+function mapTaskRow(task: TaskRow) {
   return {
     ...task,
     tags: safeParseJson(task.tags, [] as string[]),
@@ -41,11 +74,12 @@ function priorityRankSql() {
  * Query params:
  * - agent: required agent name (or use x-agent-name header)
  * - max_capacity: optional integer 1..20 (default 1)
+ *
+ * Uses agentTaskLimiter (per-agent rate limiter) instead of the standard read limiter —
+ * apiGuard rate limiting is disabled so the custom limiter runs first inside the handler.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'none' }, async (request, auth) => {
+  // Apply agent-specific rate limiter before processing (not in LIMITER_MAP, so handled here)
   const rateLimited = agentTaskLimiter(request)
   if (rateLimited) return rateLimited
 
@@ -74,12 +108,12 @@ export async function GET(request: NextRequest) {
     const now = Math.floor(Date.now() / 1000)
 
     const currentTask = db.prepare(`
-      SELECT *
+      SELECT id, title, description, status, priority, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, tags, metadata, workspace_id, project_id, project_ticket_no, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, github_issue_number, github_repo, github_synced_at, github_branch, github_pr_number, github_pr_state
       FROM tasks
       WHERE workspace_id = ? AND assigned_to = ? AND status = 'in_progress'
       ORDER BY updated_at DESC
       LIMIT 1
-    `).get(workspaceId, agent) as any | undefined
+    `).get(workspaceId, agent) as TaskRow | undefined
 
     if (currentTask) {
       return NextResponse.json({
@@ -108,14 +142,14 @@ export async function GET(request: NextRequest) {
     // Best-effort atomic pickup loop for race safety.
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const candidate = db.prepare(`
-        SELECT *
+        SELECT id, title, description, status, priority, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, tags, metadata, workspace_id, project_id, project_ticket_no, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, github_issue_number, github_repo, github_synced_at, github_branch, github_pr_number, github_pr_state
         FROM tasks
         WHERE workspace_id = ?
           AND status IN ('assigned', 'inbox')
           AND (assigned_to IS NULL OR assigned_to = ?)
         ORDER BY ${priorityRankSql()} ASC, due_date ASC NULLS LAST, created_at ASC
         LIMIT 1
-      `).get(workspaceId, agent) as any | undefined
+      `).get(workspaceId, agent) as TaskRow | undefined
 
       if (!candidate) break
 
@@ -128,7 +162,7 @@ export async function GET(request: NextRequest) {
       `).run(agent, now, candidate.id, workspaceId, agent)
 
       if (claimed.changes > 0) {
-        const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?').get(candidate.id, workspaceId) as any
+        const task = db.prepare('SELECT id, title, description, status, priority, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, tags, metadata, workspace_id, project_id, project_ticket_no, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, github_issue_number, github_repo, github_synced_at, github_branch, github_pr_number, github_pr_state FROM tasks WHERE id = ? AND workspace_id = ?').get(candidate.id, workspaceId) as TaskRow
         return NextResponse.json({
           task: mapTaskRow(task),
           reason: 'assigned' as QueueReason,
@@ -148,4 +182,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/tasks/queue error')
     return NextResponse.json({ error: 'Failed to poll task queue' }, { status: 500 })
   }
-}
+})

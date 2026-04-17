@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage, toError } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 import path from 'node:path'
@@ -21,10 +22,7 @@ function computeHash(raw: string): string {
  * GET /api/exec-approvals - Fetch pending execution approval requests
  * GET /api/exec-approvals?action=allowlist - Fetch per-agent allowlists
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (request, _auth) => {
   const action = request.nextUrl.searchParams.get('action')
 
   if (action === 'allowlist') {
@@ -48,16 +46,16 @@ export async function GET(request: NextRequest) {
 
     const data = await res.json()
     return NextResponse.json(data)
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
-    if (err.name === 'AbortError') {
+    if ((toError(err) as Error & { name?: string }).name === 'AbortError') {
       logger.warn('Gateway exec-approvals request timed out')
     } else {
       logger.warn({ err }, 'Gateway exec-approvals unreachable')
     }
     return NextResponse.json({ approvals: [] })
   }
-}
+})
 
 async function getAllowlist(): Promise<NextResponse> {
   const filePath = execApprovalsPath()
@@ -68,21 +66,21 @@ async function getAllowlist(): Promise<NextResponse> {
     const agents: Record<string, { pattern: string }[]> = {}
     if (parsed?.agents && typeof parsed.agents === 'object') {
       for (const [agentId, agentConfig] of Object.entries(parsed.agents)) {
-        const cfg = agentConfig as any
+        const cfg = agentConfig as { allowlist?: unknown[] }
         if (Array.isArray(cfg?.allowlist)) {
-          agents[agentId] = cfg.allowlist.map((e: any) => ({ pattern: String(e?.pattern ?? '') }))
+          agents[agentId] = cfg.allowlist.map((e) => ({ pattern: String((e as { pattern?: unknown })?.pattern ?? '') }))
         } else {
           agents[agentId] = []
         }
       }
     }
     return NextResponse.json({ agents, hash: computeHash(raw) })
-  } catch (err: any) {
-    if (err.code === 'ENOENT') {
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return NextResponse.json({ agents: {}, hash: computeHash('') })
     }
     logger.warn({ err }, 'Failed to read exec-approvals config')
-    return NextResponse.json({ error: `Failed to read config: ${err.message}` }, { status: 500 })
+    return NextResponse.json({ error: `Failed to read config: ${getErrorMessage(err)}` }, { status: 500 })
   }
 }
 
@@ -90,10 +88,7 @@ async function getAllowlist(): Promise<NextResponse> {
  * PUT /api/exec-approvals - Save allowlist changes
  * Body: { agents: Record<string, { pattern: string }[]>, hash?: string }
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   let body: { agents: Record<string, { pattern: string }[]>; hash?: string }
   try {
     body = await request.json()
@@ -110,7 +105,7 @@ export async function PUT(request: NextRequest) {
     const { readFile, writeFile, mkdir } = require('fs/promises')
     const { existsSync } = require('fs')
 
-    let parsed: any = { version: 1, agents: {} }
+    let parsed: { version: number; agents: Record<string, { allowlist?: { pattern: string }[] }> } = { version: 1, agents: {} }
     try {
       const raw = await readFile(filePath, 'utf-8')
       parsed = JSON.parse(raw)
@@ -124,8 +119,8 @@ export async function PUT(request: NextRequest) {
           )
         }
       }
-    } catch (err: any) {
-      if (err.code !== 'ENOENT') throw err
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
     }
 
     if (!parsed.agents) parsed.agents = {}
@@ -150,20 +145,17 @@ export async function PUT(request: NextRequest) {
     await writeFile(filePath, newRaw, { mode: 0o600 })
 
     return NextResponse.json({ ok: true, hash: computeHash(newRaw) })
-  } catch (err: any) {
+  } catch (err: unknown) {
     logger.error({ err }, 'Failed to save exec-approvals config')
-    return NextResponse.json({ error: `Failed to save: ${err.message}` }, { status: 500 })
+    return NextResponse.json({ error: `Failed to save: ${getErrorMessage(err)}` }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/exec-approvals - Respond to an execution approval request
  * Body: { id: string, action: 'approve' | 'deny' | 'always_allow', reason?: string }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   let body: { id: string; action: string; reason?: string }
   try {
     body = await request.json()
@@ -198,13 +190,13 @@ export async function POST(request: NextRequest) {
 
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
-    if (err.name === 'AbortError') {
+    if ((toError(err) as Error & { name?: string }).name === 'AbortError') {
       logger.error('Gateway exec-approvals respond request timed out')
       return NextResponse.json({ error: 'Gateway request timed out' }, { status: 504 })
     }
     logger.error({ err }, 'Gateway exec-approvals respond failed')
     return NextResponse.json({ error: 'Gateway unreachable' }, { status: 502 })
   }
-}
+})

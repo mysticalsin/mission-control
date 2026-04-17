@@ -1,47 +1,27 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { createClientLogger } from '@/lib/client-logger'
+import { type Agent, statusColors } from './agent-squad-panel-types'
+import { AgentCard } from './agent-squad-card'
+import { AgentDetailModal } from './agent-squad-detail'
+import { CreateAgentModal } from './agent-squad-create'
 
 const log = createClientLogger('AgentSquadPanel')
 
-interface Agent {
-  id: number
-  name: string
-  role: string
-  session_key?: string
-  soul_content?: string
-  status: 'offline' | 'idle' | 'busy' | 'error'
-  last_seen?: number
-  last_activity?: string
-  created_at: number
-  updated_at: number
-  config?: any
-  taskStats?: {
-    total: number
-    assigned: number
-    in_progress: number
-    completed: number
-  }
+// Fetch all agents from the /api/agents endpoint with a timeout guard
+async function fetchAgentsFromApi(t: ReturnType<typeof useTranslations>): Promise<Agent[]> {
+  const response = await fetch('/api/agents', { signal: AbortSignal.timeout(8000) })
+  if (!response.ok) throw new Error(t('failedToFetch'))
+  const data = await response.json() as { agents?: Agent[] }
+  return data.agents ?? []
 }
 
-const statusColors: Record<string, string> = {
-  offline: 'bg-gray-500',
-  idle: 'bg-green-500',
-  busy: 'bg-yellow-500',
-  error: 'bg-red-500',
-}
-
-const statusIcons: Record<string, string> = {
-  offline: '⚫',
-  idle: '🟢',
-  busy: '🟡',
-  error: '🔴',
-}
-
-export function AgentSquadPanel() {
+export function AgentSquadPanel(): React.JSX.Element {
+  const t = useTranslations('agentSquad')
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,39 +29,36 @@ export function AgentSquadPanel() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
 
-  // Fetch agents
-  const fetchAgents = useCallback(async () => {
+  // Tracks whether the first fetch has completed — avoids full-page loader on subsequent polls
+  const hasLoadedRef = useRef(false)
+
+  const fetchAgents = useCallback(async (): Promise<void> => {
     try {
       setError(null)
-      if (agents.length === 0) setLoading(true)
-
-      const response = await fetch('/api/agents')
-      if (!response.ok) throw new Error('Failed to fetch agents')
-
-      const data = await response.json()
-      setAgents(data.agents || [])
+      if (!hasLoadedRef.current) setLoading(true)
+      const loaded = await fetchAgentsFromApi(t)
+      setAgents(loaded)
+      hasLoadedRef.current = true
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
+      setError(err instanceof Error ? err.message : t('errorOccurred'))
     } finally {
       setLoading(false)
     }
-  }, [agents.length])
+  }, [t])
 
-  // Initial load
-  useEffect(() => {
-    fetchAgents()
-  }, [fetchAgents])
+  useEffect(() => { void fetchAgents() }, [fetchAgents])
 
-  // Auto-refresh
   useEffect(() => {
     if (!autoRefresh) return
-
-    const interval = setInterval(fetchAgents, 10000) // Every 10 seconds
+    const interval = setInterval(() => { void fetchAgents() }, 10_000)
     return () => clearInterval(interval)
   }, [autoRefresh, fetchAgents])
 
-  // Update agent status
-  const updateAgentStatus = async (agentName: string, status: Agent['status'], activity?: string) => {
+  const updateAgentStatus = async (
+    agentName: string,
+    status: Agent['status'],
+    activity?: string,
+  ): Promise<void> => {
     try {
       const response = await fetch('/api/agents', {
         method: 'PUT',
@@ -89,56 +66,42 @@ export function AgentSquadPanel() {
         body: JSON.stringify({
           name: agentName,
           status,
-          last_activity: activity || `Status changed to ${status}`
-        })
+          last_activity: activity ?? `Status changed to ${status}`,
+        }),
+        signal: AbortSignal.timeout(8000),
       })
-
-      if (!response.ok) throw new Error('Failed to update agent status')
-      
-      // Update local state
-      setAgents(prev => prev.map(agent => 
-        agent.name === agentName 
-          ? { 
-              ...agent, 
-              status, 
-              last_activity: activity || `Status changed to ${status}`,
-              last_seen: Math.floor(Date.now() / 1000),
-              updated_at: Math.floor(Date.now() / 1000)
-            }
+      if (!response.ok) throw new Error(t('failedToUpdateStatus'))
+      setAgents(prev => prev.map(agent =>
+        agent.name === agentName
+          ? { ...agent, status, last_activity: activity ?? `Status changed to ${status}`, last_seen: Math.floor(Date.now() / 1000), updated_at: Math.floor(Date.now() / 1000) }
           : agent
       ))
-    } catch (error) {
-      log.error('Failed to update agent status:', error)
-      setError('Failed to update agent status')
+    } catch (err) {
+      log.error('Failed to update agent status:', err)
+      setError(t('failedToUpdateStatus'))
     }
   }
 
-  // Format last seen time
-  const formatLastSeen = (timestamp?: number) => {
-    if (!timestamp) return 'Never'
-    
-    const now = Date.now()
-    const diffMs = now - (timestamp * 1000)
-    const diffMinutes = Math.floor(diffMs / (1000 * 60))
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-    if (diffMinutes < 1) return 'Just now'
-    if (diffMinutes < 60) return `${diffMinutes}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    if (diffDays < 7) return `${diffDays}d ago`
-    
+  const formatLastSeen = (timestamp?: number): string => {
+    if (!timestamp) return t('never')
+    const diffMs = Date.now() - timestamp * 1000
+    const diffMinutes = Math.floor(diffMs / 60_000)
+    const diffHours = Math.floor(diffMs / 3_600_000)
+    const diffDays = Math.floor(diffMs / 86_400_000)
+    if (diffMinutes < 1) return t('justNow')
+    if (diffMinutes < 60) return t('minutesAgo', { count: diffMinutes })
+    if (diffHours < 24) return t('hoursAgo', { count: diffHours })
+    if (diffDays < 7) return t('daysAgo', { count: diffDays })
     return new Date(timestamp * 1000).toLocaleDateString()
   }
 
-  // Get status distribution for summary
-  const statusCounts = agents.reduce((acc, agent) => {
-    acc[agent.status] = (acc[agent.status] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  const statusCounts = agents.reduce<Record<string, number>>((acc, agent) => ({
+    ...acc,
+    [agent.status]: (acc[agent.status] ?? 0) + 1,
+  }), {})
 
-  if (loading && agents.length === 0) {
-    return <Loader variant="panel" label="Loading agents" />
+  if (loading && !hasLoadedRef.current) {
+    return <Loader variant="panel" label={t('loadingAgents')} />
   }
 
   return (
@@ -146,51 +109,30 @@ export function AgentSquadPanel() {
       {/* Header */}
       <div className="flex justify-between items-center p-4 border-b border-gray-700">
         <div className="flex items-center gap-4">
-          <h2 className="text-xl font-bold text-white">Agent Squad</h2>
-          
-          {/* Status Summary */}
+          <h2 className="text-xl font-bold text-white">{t('title')}</h2>
           <div className="flex gap-2 text-sm">
             {Object.entries(statusCounts).map(([status, count]) => (
               <div key={status} className="flex items-center gap-1">
-                <div className={`w-2 h-2 rounded-full ${statusColors[status]}`}></div>
+                <div className={`w-2 h-2 rounded-full ${statusColors[status]}`} />
                 <span className="text-gray-400">{count}</span>
               </div>
             ))}
           </div>
         </div>
-        
         <div className="flex gap-2">
-          <Button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            variant={autoRefresh ? 'success' : 'secondary'}
-            size="sm"
-          >
-            {autoRefresh ? 'Live' : 'Manual'}
+          <Button onClick={() => setAutoRefresh(v => !v)} variant={autoRefresh ? 'success' : 'secondary'} size="sm">
+            {autoRefresh ? t('live') : t('manual')}
           </Button>
-          <Button
-            onClick={() => setShowCreateModal(true)}
-          >
-            + Add Agent
-          </Button>
-          <Button
-            onClick={fetchAgents}
-            variant="secondary"
-          >
-            Refresh
-          </Button>
+          <Button onClick={() => setShowCreateModal(true)}>{t('addAgent')}</Button>
+          <Button onClick={() => void fetchAgents()} variant="secondary">{t('refresh')}</Button>
         </div>
       </div>
 
-      {/* Error Display */}
+      {/* Error Banner */}
       {error && (
         <div className="bg-red-900/20 border border-red-500 text-red-400 p-3 m-4 rounded">
           {error}
-          <Button
-            onClick={() => setError(null)}
-            variant="ghost"
-            size="icon-sm"
-            className="float-right text-red-300 hover:text-red-100"
-          >
+          <Button onClick={() => setError(null)} variant="ghost" size="icon-sm" className="float-right text-red-300 hover:text-red-100">
             ×
           </Button>
         </div>
@@ -201,421 +143,47 @@ export function AgentSquadPanel() {
         {agents.length === 0 ? (
           <div className="text-center text-gray-500 py-8">
             <div className="text-4xl mb-2">🤖</div>
-            <p>No agents found</p>
-            <p className="text-sm">Add your first agent to get started</p>
+            <p>{t('noAgents')}</p>
+            <p className="text-sm">{t('addFirstAgent')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {agents.map(agent => (
-              <div
+              <AgentCard
                 key={agent.id}
-                className="bg-gray-800 rounded-lg p-4 border-l-4 border-gray-600 hover:bg-gray-750 transition-colors cursor-pointer"
-                onClick={() => setSelectedAgent(agent)}
-              >
-                {/* Agent Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="font-semibold text-white text-lg">{agent.name}</h3>
-                    <p className="text-gray-400 text-sm">{agent.role}</p>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${statusColors[agent.status]} animate-pulse`}></div>
-                    <span className="text-xs text-gray-400">{agent.status}</span>
-                  </div>
-                </div>
-
-                {/* Session Info */}
-                {agent.session_key && (
-                  <div className="text-xs text-gray-400 mb-2">
-                    <span className="font-medium">Session:</span> {agent.session_key}
-                  </div>
-                )}
-
-                {/* Task Stats */}
-                {agent.taskStats && (
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <div className="bg-gray-700/50 rounded p-2 text-center">
-                      <div className="text-lg font-semibold text-white">{agent.taskStats.total}</div>
-                      <div className="text-xs text-gray-400">Total Tasks</div>
-                    </div>
-                    <div className="bg-gray-700/50 rounded p-2 text-center">
-                      <div className="text-lg font-semibold text-yellow-400">{agent.taskStats.in_progress}</div>
-                      <div className="text-xs text-gray-400">In Progress</div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Last Activity */}
-                <div className="text-xs text-gray-400 mb-3">
-                  <div>
-                    <span className="font-medium">Last seen:</span> {formatLastSeen(agent.last_seen)}
-                  </div>
-                  {agent.last_activity && (
-                    <div className="mt-1 truncate" title={agent.last_activity}>
-                      <span className="font-medium">Activity:</span> {agent.last_activity}
-                    </div>
-                  )}
-                </div>
-
-                {/* Quick Actions */}
-                <div className="flex gap-1">
-                  <Button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      updateAgentStatus(agent.name, 'idle', 'Manually activated')
-                    }}
-                    disabled={agent.status === 'idle'}
-                    variant="success"
-                    size="xs"
-                    className="flex-1"
-                  >
-                    Wake
-                  </Button>
-                  <Button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      updateAgentStatus(agent.name, 'busy', 'Manually set to busy')
-                    }}
-                    disabled={agent.status === 'busy'}
-                    size="xs"
-                    className="flex-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30"
-                  >
-                    Busy
-                  </Button>
-                  <Button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      updateAgentStatus(agent.name, 'offline', 'Manually set offline')
-                    }}
-                    disabled={agent.status === 'offline'}
-                    variant="secondary"
-                    size="xs"
-                    className="flex-1"
-                  >
-                    Sleep
-                  </Button>
-                </div>
-              </div>
+                agent={agent}
+                formatLastSeen={formatLastSeen}
+                onSelect={setSelectedAgent}
+                onStatusUpdate={updateAgentStatus}
+                wakeLabel={t('wake')}
+                busyLabel={t('busy')}
+                sleepLabel={t('sleep')}
+                sessionLabel={t('session')}
+                lastSeenLabel={t('lastSeen')}
+                activityLabel={t('activity')}
+                totalTasksLabel={t('totalTasks')}
+                inProgressLabel={t('inProgress')}
+              />
             ))}
           </div>
         )}
       </div>
 
-      {/* Agent Detail Modal */}
       {selectedAgent && (
         <AgentDetailModal
           agent={selectedAgent}
           onClose={() => setSelectedAgent(null)}
-          onUpdate={fetchAgents}
+          onUpdate={() => void fetchAgents()}
           onStatusUpdate={updateAgentStatus}
         />
       )}
 
-      {/* Create Agent Modal */}
       {showCreateModal && (
         <CreateAgentModal
           onClose={() => setShowCreateModal(false)}
-          onCreated={fetchAgents}
+          onCreated={() => void fetchAgents()}
         />
       )}
-    </div>
-  )
-}
-
-// Agent Detail Modal
-function AgentDetailModal({
-  agent,
-  onClose,
-  onUpdate,
-  onStatusUpdate
-}: {
-  agent: Agent
-  onClose: () => void
-  onUpdate: () => void
-  onStatusUpdate: (name: string, status: Agent['status'], activity?: string) => Promise<void>
-}) {
-  const [editing, setEditing] = useState(false)
-  const [formData, setFormData] = useState({
-    role: agent.role,
-    session_key: agent.session_key || '',
-    soul_content: agent.soul_content || '',
-  })
-
-  const handleSave = async () => {
-    try {
-      const response = await fetch('/api/agents', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: agent.name,
-          ...formData
-        })
-      })
-
-      if (!response.ok) throw new Error('Failed to update agent')
-      
-      setEditing(false)
-      onUpdate()
-    } catch (error) {
-      log.error('Failed to update agent:', error)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h3 className="text-xl font-bold text-white">{agent.name}</h3>
-              <p className="text-gray-400">{agent.role}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className={`w-4 h-4 rounded-full ${statusColors[agent.status]}`}></div>
-              <span className="text-white">{agent.status}</span>
-              <Button onClick={onClose} variant="ghost" size="icon-sm" className="text-2xl">×</Button>
-            </div>
-          </div>
-
-          {/* Status Controls */}
-          <div className="mb-6 p-4 bg-gray-700/50 rounded-lg">
-            <h4 className="text-sm font-medium text-white mb-2">Status Control</h4>
-            <div className="flex gap-2">
-              {(['idle', 'busy', 'offline'] as const).map(status => (
-                <Button
-                  key={status}
-                  onClick={() => onStatusUpdate(agent.name, status)}
-                  variant={agent.status === status ? 'default' : 'secondary'}
-                  size="sm"
-                >
-                  {statusIcons[status]} {status}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {/* Agent Details */}
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Role</label>
-              {editing ? (
-                <input
-                  type="text"
-                  value={formData.role}
-                  onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              ) : (
-                <p className="text-white">{agent.role}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Session Key</label>
-              {editing ? (
-                <input
-                  type="text"
-                  value={formData.session_key}
-                  onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              ) : (
-                <p className="text-white font-mono">{agent.session_key || 'Not set'}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">SOUL Content</label>
-              {editing ? (
-                <textarea
-                  value={formData.soul_content}
-                  onChange={(e) => setFormData(prev => ({ ...prev, soul_content: e.target.value }))}
-                  rows={4}
-                  className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Agent personality and instructions..."
-                />
-              ) : (
-                <p className="text-white whitespace-pre-wrap">{agent.soul_content || 'Not set'}</p>
-              )}
-            </div>
-
-            {/* Task Statistics */}
-            {agent.taskStats && (
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1">Task Statistics</label>
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="bg-gray-700/50 rounded p-3 text-center">
-                    <div className="text-lg font-semibold text-white">{agent.taskStats.total}</div>
-                    <div className="text-xs text-gray-400">Total</div>
-                  </div>
-                  <div className="bg-gray-700/50 rounded p-3 text-center">
-                    <div className="text-lg font-semibold text-blue-400">{agent.taskStats.assigned}</div>
-                    <div className="text-xs text-gray-400">Assigned</div>
-                  </div>
-                  <div className="bg-gray-700/50 rounded p-3 text-center">
-                    <div className="text-lg font-semibold text-yellow-400">{agent.taskStats.in_progress}</div>
-                    <div className="text-xs text-gray-400">In Progress</div>
-                  </div>
-                  <div className="bg-gray-700/50 rounded p-3 text-center">
-                    <div className="text-lg font-semibold text-green-400">{agent.taskStats.completed}</div>
-                    <div className="text-xs text-gray-400">Done</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Timestamps */}
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-gray-400">Created:</span>
-                <span className="text-white ml-2">{new Date(agent.created_at * 1000).toLocaleDateString()}</span>
-              </div>
-              <div>
-                <span className="text-gray-400">Last Updated:</span>
-                <span className="text-white ml-2">{new Date(agent.updated_at * 1000).toLocaleDateString()}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-3 mt-6">
-            {editing ? (
-              <>
-                <Button
-                  onClick={handleSave}
-                  className="flex-1"
-                >
-                  Save Changes
-                </Button>
-                <Button
-                  onClick={() => setEditing(false)}
-                  variant="secondary"
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button
-                onClick={() => setEditing(true)}
-                className="flex-1"
-              >
-                Edit Agent
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Create Agent Modal
-function CreateAgentModal({
-  onClose,
-  onCreated
-}: {
-  onClose: () => void
-  onCreated: () => void
-}) {
-  const [formData, setFormData] = useState({
-    name: '',
-    role: '',
-    session_key: '',
-    soul_content: '',
-  })
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    try {
-      const response = await fetch('/api/agents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      })
-
-      if (!response.ok) throw new Error('Failed to create agent')
-      
-      onCreated()
-      onClose()
-    } catch (error) {
-      log.error('Error creating agent:', error)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-lg max-w-md w-full">
-        <form onSubmit={handleSubmit} className="p-6">
-          <h3 className="text-xl font-bold text-white mb-4">Create New Agent</h3>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Name</label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Role</label>
-              <input
-                type="text"
-                value={formData.role}
-                onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
-                className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., researcher, developer, analyst"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Session Key (Optional)</label>
-              <input
-                type="text"
-                value={formData.session_key}
-                onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
-                className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="ClawdBot session identifier"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">SOUL Content (Optional)</label>
-              <textarea
-                value={formData.soul_content}
-                onChange={(e) => setFormData(prev => ({ ...prev, soul_content: e.target.value }))}
-                className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={3}
-                placeholder="Agent personality and instructions..."
-              />
-            </div>
-          </div>
-          
-          <div className="flex gap-3 mt-6">
-            <Button
-              type="submit"
-              className="flex-1"
-            >
-              Create Agent
-            </Button>
-            <Button
-              type="button"
-              onClick={onClose}
-              variant="secondary"
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }

@@ -1,16 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { deliverWebhookPublic } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
+
+interface DeliveryWithWebhookRow {
+  // delivery columns
+  id: number
+  event_type: string
+  payload: string | null
+  attempt?: number
+  // joined webhook columns
+  w_id: number
+  w_name: string
+  w_url: string
+  w_secret: string | null
+  w_events: string
+  w_enabled: number
+  w_workspace_id: number
+}
 
 /**
  * POST /api/webhooks/retry - Manually retry a failed delivery
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -26,7 +39,7 @@ export async function POST(request: NextRequest) {
       FROM webhook_deliveries wd
       JOIN webhooks w ON w.id = wd.webhook_id AND w.workspace_id = wd.workspace_id
       WHERE wd.id = ? AND wd.workspace_id = ?
-    `).get(delivery_id, workspaceId) as any
+    `).get(delivery_id, workspaceId) as DeliveryWithWebhookRow | undefined
 
     if (!delivery) {
       return NextResponse.json({ error: 'Delivery not found' }, { status: 404 })
@@ -43,10 +56,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse the original payload
-    let parsedPayload: Record<string, any>
+    let parsedPayload: Record<string, unknown>
     try {
-      const parsed = JSON.parse(delivery.payload)
-      parsedPayload = parsed.data ?? parsed
+      const parsed = JSON.parse(delivery.payload ?? '')
+      parsedPayload = (parsed?.data ?? parsed) as Record<string, unknown>
     } catch {
       parsedPayload = {}
     }
@@ -62,4 +75,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/webhooks/retry error')
     return NextResponse.json({ error: 'Failed to retry delivery' }, { status: 500 })
   }
-}
+})

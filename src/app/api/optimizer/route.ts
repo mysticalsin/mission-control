@@ -1,0 +1,149 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { apiGuard } from '@/lib/api-guard'
+import { validateBody } from '@/lib/validation'
+import { logger } from '@/lib/logger'
+import { HillClimbingOptimizer } from '@/lib/hill-climbing'
+import { bridgeComparisonToPattern } from '@/lib/hill-climbing-feedback-bridge'
+import type { ComparisonResult } from '@/lib/hill-climbing'
+
+// ---------------------------------------------------------------------------
+// Request schemas
+// ---------------------------------------------------------------------------
+
+const createSchema = z.object({
+  action: z.literal('create'),
+  operationName: z.string().min(1).max(200),
+  configA: z.record(z.string(), z.unknown()),
+  configB: z.record(z.string(), z.unknown()).optional(),
+  metricName: z.string().min(1).max(200),
+  mutationOptions: z.object({
+    mutationRate: z.number().min(0).max(1).optional(),
+    fields: z.array(z.string()).optional(),
+  }).optional(),
+})
+
+const outcomeSchema = z.object({
+  action: z.literal('outcome'),
+  comparisonId: z.number().int().positive(),
+  variant: z.enum(['a', 'b']),
+  value: z.number(),
+})
+
+const evalSchema = z.object({
+  action: z.literal('evaluate'),
+  comparisonId: z.number().int().positive(),
+  bridgeToPatterns: z.boolean().optional().default(true),
+})
+
+const postBodySchema = z.discriminatedUnion('action', [
+  createSchema,
+  outcomeSchema,
+  evalSchema,
+])
+
+// ---------------------------------------------------------------------------
+// GET /api/optimizer — list comparisons for an operation
+// ---------------------------------------------------------------------------
+
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (req, auth) => {
+  const { searchParams } = new URL(req.url)
+  const operationName = searchParams.get('operation') ?? ''
+  const workspaceId = auth.user.workspace_id
+  // WHY: Number('abc') = NaN; Math.min(NaN, 100) = NaN which breaks the DB query.
+  // parseInt + NaN fallback ensures a sane default when the query param is non-numeric.
+  const rawLimit = parseInt(searchParams.get('limit') ?? '20', 10)
+  const limit = Math.min(isNaN(rawLimit) ? 20 : rawLimit, 100)
+
+  try {
+    const optimizer = HillClimbingOptimizer.getInstance()
+    const comparisons = optimizer.listComparisons(operationName, workspaceId, limit)
+    return NextResponse.json({ data: comparisons })
+  } catch (err) {
+    logger.error({ err }, 'Optimizer GET failed')
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/optimizer — create | record outcome | evaluate
+// ---------------------------------------------------------------------------
+
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (req, auth) => {
+  const validated = await validateBody(req, postBodySchema)
+  if ('error' in validated) return validated.error
+
+  const workspaceId = auth.user.workspace_id
+
+  try {
+    return dispatchAction(validated.data, workspaceId)
+  } catch (err) {
+    logger.error({ err }, 'Optimizer POST failed')
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Action dispatcher
+// ---------------------------------------------------------------------------
+
+type PostAction = z.infer<typeof postBodySchema>
+
+function dispatchAction(data: PostAction, workspaceId: number): NextResponse {
+  const optimizer = HillClimbingOptimizer.getInstance()
+
+  if (data.action === 'create') {
+    return handleCreate(optimizer, data, workspaceId)
+  }
+  if (data.action === 'outcome') {
+    return handleOutcome(optimizer, data)
+  }
+  if (data.action === 'evaluate') {
+    return handleEvaluate(optimizer, data, workspaceId)
+  }
+  return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+function handleCreate(
+  optimizer: HillClimbingOptimizer,
+  data: z.infer<typeof createSchema>,
+  workspaceId: number,
+): NextResponse {
+  const configB = data.configB ?? optimizer.proposeVariant(data.configA, data.mutationOptions)
+  const id = optimizer.createComparison(data.operationName, data.configA, configB, data.metricName, workspaceId)
+  return NextResponse.json({ data: { comparisonId: id, configB } }, { status: 201 })
+}
+
+function handleOutcome(
+  optimizer: HillClimbingOptimizer,
+  data: z.infer<typeof outcomeSchema>,
+): NextResponse {
+  // WHY: metricName is intentionally omitted — it is already stored in trajectory_comparisons
+  // at creation time and is not used by recordOutcome's UPDATE query.
+  optimizer.recordOutcome({ comparisonId: data.comparisonId, variant: data.variant, value: data.value })
+  return NextResponse.json({ data: { ok: true } })
+}
+
+function handleEvaluate(
+  optimizer: HillClimbingOptimizer,
+  data: z.infer<typeof evalSchema>,
+  workspaceId: number,
+): NextResponse {
+  const result: ComparisonResult = optimizer.evaluateComparison(data.comparisonId)
+  if (data.bridgeToPatterns) {
+    try {
+      bridgeComparisonToPattern(data.comparisonId, result, workspaceId)
+    } catch (err) {
+      // WHY: pattern bridging is best-effort — evaluation is already committed to DB.
+      // A bridge failure must not discard the comparison result the caller requested.
+      logger.error({ err, comparisonId: data.comparisonId }, 'Hill-climbing bridge failed — evaluation result preserved')
+    }
+  }
+  return NextResponse.json({ data: result })
+}
+
+export const dynamic = 'force-dynamic'

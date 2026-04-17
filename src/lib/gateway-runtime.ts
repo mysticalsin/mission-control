@@ -1,3 +1,4 @@
+import { getErrorMessage, toError } from './types/sql'
 import fs from 'node:fs'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
@@ -44,24 +45,33 @@ export function registerMcAsDashboard(mcUrl: string): { registered: boolean; alr
     const origin = new URL(mcUrl).origin
     const origins: string[] = parsed.gateway.controlUi.allowedOrigins || []
     const alreadyInOrigins = origins.includes(origin)
-    const deviceAuthAlreadyDisabled = parsed.gateway.controlUi.dangerouslyDisableDeviceAuth === true
 
-    if (alreadyInOrigins && deviceAuthAlreadyDisabled) {
+    if (alreadyInOrigins) {
       return { registered: false, alreadySet: true }
     }
 
-    // Add MC origin to allowedOrigins and disable device auth
-    // (MC authenticates via gateway token — device pairing is unnecessary)
-    if (!alreadyInOrigins) {
-      origins.push(origin)
-      parsed.gateway.controlUi.allowedOrigins = origins
-    }
-    parsed.gateway.controlUi.dangerouslyDisableDeviceAuth = true
+    // Add MC origin to allowedOrigins only — do NOT touch dangerouslyDisableDeviceAuth.
+    // MC authenticates via gateway token, but forcing device auth off is a security
+    // downgrade that the operator should control, not Mission Control.
+    origins.push(origin)
+    parsed.gateway.controlUi.allowedOrigins = origins
 
     fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n')
     logger.info({ origin }, 'Registered MC origin in gateway config')
     return { registered: true, alreadySet: false }
-  } catch (err) {
+  } catch (err: unknown) {
+    // Read-only filesystem (e.g. Docker read_only: true, or intentional mount) —
+    // treat as a non-fatal skip rather than an error.
+    const errWithCode = toError(err) as Error & { code?: string }
+    if (errWithCode.code === 'EROFS' || errWithCode.code === 'EACCES' || errWithCode.code === 'EPERM') {
+      logger.warn(
+        { err, configPath },
+        'Gateway config is read-only — skipping MC origin registration. ' +
+        'To enable auto-registration, mount openclaw.json with write access or ' +
+        'add the MC origin to gateway.controlUi.allowedOrigins manually.',
+      )
+      return { registered: false, alreadySet: false }
+    }
     logger.error({ err }, 'Failed to register MC in gateway config')
     return { registered: false, alreadySet: false }
   }

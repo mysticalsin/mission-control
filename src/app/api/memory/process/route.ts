@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { config } from '@/lib/config'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { reflectPass, reweavePass, generateMOCs } from '@/lib/memory-utils'
 import { logger } from '@/lib/logger'
 
@@ -16,13 +15,7 @@ const MEMORY_PATH = config.memoryDir
  * - reweave: Identify stale files needing updates from newer linked files
  * - generate-moc: Auto-generate Maps of Content from file clusters
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   if (!MEMORY_PATH) {
     return NextResponse.json({ error: 'Memory directory not configured' }, { status: 500 })
   }
@@ -56,4 +49,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err }, 'Memory process API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

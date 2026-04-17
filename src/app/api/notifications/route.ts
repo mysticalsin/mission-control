@@ -1,18 +1,20 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server';
 import { getDatabase, Notification } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
-import { mutationLimiter } from '@/lib/rate-limit';
+import { apiGuard } from '@/lib/api-guard';
 import { validateBody, notificationActionSchema } from '@/lib/validation';
 import { logger } from '@/lib/logger';
+
+/** Source detail rows returned by per-type lookup queries */
+interface TaskDetailRow { id: number; title: string; status: string }
+interface AgentDetailRow { id: number; name: string; role: string; status: string }
+interface CommentDetailRow { id: number; content: string | null; task_id: number; task_title: string | null }
 
 /**
  * GET /api/notifications - Get notifications for a specific recipient
  * Query params: recipient, unread_only, type, limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const { searchParams } = new URL(request.url);
@@ -30,8 +32,8 @@ export async function GET(request: NextRequest) {
     }
     
     // Build dynamic query
-    let query = 'SELECT * FROM notifications WHERE recipient = ? AND workspace_id = ?';
-    const params: any[] = [recipient, workspaceId];
+    let query = 'SELECT id, recipient, type, title, message, source_type, source_id, read_at, delivered_at, created_at, workspace_id FROM notifications WHERE recipient = ? AND workspace_id = ?';
+    const params: SqlParam[] = [recipient, workspaceId];
     
     if (unread_only) {
       query += ' AND read_at IS NULL';
@@ -66,14 +68,14 @@ export async function GET(request: NextRequest) {
         if (notification.source_type && notification.source_id) {
           switch (notification.source_type) {
             case 'task': {
-              const task = taskDetailStmt.get(notification.source_id, workspaceId) as any;
+              const task = taskDetailStmt.get(notification.source_id, workspaceId) as TaskDetailRow | undefined;
               if (task) {
                 sourceDetails = { type: 'task', ...task };
               }
               break;
             }
             case 'comment': {
-              const comment = commentDetailStmt.get(notification.source_id, workspaceId, workspaceId) as any;
+              const comment = commentDetailStmt.get(notification.source_id, workspaceId, workspaceId) as CommentDetailRow | undefined;
               if (comment) {
                 sourceDetails = {
                   type: 'comment',
@@ -84,7 +86,7 @@ export async function GET(request: NextRequest) {
               break;
             }
             case 'agent': {
-              const agent = agentDetailStmt.get(notification.source_id, workspaceId) as any;
+              const agent = agentDetailStmt.get(notification.source_id, workspaceId) as AgentDetailRow | undefined;
               if (agent) {
                 sourceDetails = { type: 'agent', ...agent };
               }
@@ -111,7 +113,7 @@ export async function GET(request: NextRequest) {
     
     // Get total count for pagination
     let countQuery = 'SELECT COUNT(*) as total FROM notifications WHERE recipient = ? AND workspace_id = ?';
-    const countParams: any[] = [recipient, workspaceId];
+    const countParams: SqlParam[] = [recipient, workspaceId];
     if (unread_only) {
       countQuery += ' AND read_at IS NULL';
     }
@@ -132,19 +134,13 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/notifications error');
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * PUT /api/notifications - Mark notifications as read
  * Body: { ids: number[] } or { recipient: string } (mark all as read)
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -191,19 +187,13 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/notifications error');
     return NextResponse.json({ error: 'Failed to update notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * DELETE /api/notifications - Delete notifications
  * Body: { ids: number[] } or { recipient: string, olderThan: number }
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -246,19 +236,13 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/notifications error');
     return NextResponse.json({ error: 'Failed to delete notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * POST /api/notifications/mark-delivered - Mark notifications as delivered to agent
  * Body: { agent: string }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -282,7 +266,7 @@ export async function POST(request: NextRequest) {
       
       // Get the notifications that were just marked as delivered
       const deliveredNotifications = db.prepare(`
-        SELECT * FROM notifications 
+        SELECT id, recipient, type, title, message, source_type, source_id, read_at, delivered_at, created_at, workspace_id FROM notifications 
         WHERE recipient = ? AND delivered_at = ? AND workspace_id = ?
         ORDER BY created_at DESC
       `).all(agent, now, workspaceId) as Notification[];
@@ -299,4 +283,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/notifications error');
     return NextResponse.json({ error: 'Failed to process notification action' }, { status: 500 });
   }
-}
+})

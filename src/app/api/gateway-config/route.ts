@@ -1,11 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage, toError } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
-import { requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
 import { validateBody, gatewayConfigUpdateSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
+import { logger } from '@/lib/logger'
+import { apiGuard } from '@/lib/api-guard'
+import type { NextRequest } from 'next/server'
 
 function getConfigPath(): string | null {
   return config.openclawConfigPath || null
@@ -30,10 +32,7 @@ function computeHash(raw: string): string {
  * GET /api/gateway-config - Read the gateway configuration
  * GET /api/gateway-config?action=schema - Get the config JSON schema
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
   const action = request.nextUrl.searchParams.get('action')
 
   if (action === 'schema') {
@@ -60,13 +59,14 @@ export async function GET(request: NextRequest) {
       raw_size: raw.length,
       hash,
     })
-  } catch (err: any) {
-    if (err.code === 'ENOENT') {
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return NextResponse.json({ error: 'Config file not found', path: configPath }, { status: 404 })
     }
-    return NextResponse.json({ error: `Failed to read config: ${err.message}` }, { status: 500 })
+    logger.error({ err }, 'Failed to read gateway config')
+    return NextResponse.json({ error: 'Failed to read config. Check server logs for details.' }, { status: 500 })
   }
-}
+})
 
 async function getSchema(): Promise<NextResponse> {
   const controller = new AbortController()
@@ -85,10 +85,10 @@ async function getSchema(): Promise<NextResponse> {
     }
     const data = await res.json()
     return NextResponse.json(data)
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
     return NextResponse.json(
-      { error: err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
+      { error: toError(err).name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
       { status: 502 },
     )
   }
@@ -101,13 +101,7 @@ async function getSchema(): Promise<NextResponse> {
  *
  * Body: { updates: { "path.to.key": value, ... }, hash?: string }
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const action = request.nextUrl.searchParams.get('action')
 
   if (action === 'apply') {
@@ -140,7 +134,7 @@ export async function PUT(request: NextRequest) {
     const raw = await readFile(configPath, 'utf-8')
 
     // Hash-based concurrency check
-    const clientHash = (body as any).hash
+    const clientHash = (body as { hash?: string }).hash
     if (clientHash) {
       const serverHash = computeHash(raw)
       if (clientHash !== serverHash) {
@@ -188,12 +182,16 @@ export async function PUT(request: NextRequest) {
       count: appliedKeys.length,
       hash: computeHash(newRaw),
     })
-  } catch (err: any) {
-    return NextResponse.json({ error: `Failed to update config: ${err.message}` }, { status: 500 })
+  } catch (err: unknown) {
+    logger.error({ err }, 'Failed to update gateway config')
+    return NextResponse.json({ error: `Failed to update config: ${getErrorMessage(err)}` }, { status: 500 })
   }
-}
+})
 
-async function applyConfig(request: NextRequest, auth: any): Promise<NextResponse> {
+async function applyConfig(
+  request: NextRequest,
+  auth: { user: { username: string; id: number } },
+): Promise<NextResponse> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
   try {
@@ -222,16 +220,19 @@ async function applyConfig(request: NextRequest, auth: any): Promise<NextRespons
     }
     const data = await res.json().catch(() => ({}))
     return NextResponse.json({ ok: true, ...data })
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
     return NextResponse.json(
-      { error: err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
+      { error: toError(err).name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
       { status: 502 },
     )
   }
 }
 
-async function updateSystem(request: NextRequest, auth: any): Promise<NextResponse> {
+async function updateSystem(
+  request: NextRequest,
+  auth: { user: { username: string; id: number } },
+): Promise<NextResponse> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
   try {
@@ -260,39 +261,42 @@ async function updateSystem(request: NextRequest, auth: any): Promise<NextRespon
     }
     const data = await res.json().catch(() => ({}))
     return NextResponse.json({ ok: true, ...data })
-  } catch (err: any) {
+  } catch (err: unknown) {
     clearTimeout(timeout)
     return NextResponse.json(
-      { error: err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
+      { error: toError(err).name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
       { status: 502 },
     )
   }
 }
 
 /** Set a value in a nested object using dot-notation path */
-function setNestedValue(obj: any, path: string, value: any) {
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
   const keys = path.split('.')
-  let current = obj
+  let current: Record<string, unknown> = obj
   for (let i = 0; i < keys.length - 1; i++) {
-    if (current[keys[i]] === undefined) current[keys[i]] = {}
-    current = current[keys[i]]
+    const k = keys[i]
+    if (current[k] === undefined || typeof current[k] !== 'object' || current[k] === null) {
+      current[k] = {}
+    }
+    current = current[k] as Record<string, unknown>
   }
   current[keys[keys.length - 1]] = value
 }
 
-/** Redact sensitive values for display */
-function redactSensitive(obj: any, parentKey = ''): any {
+/** Redact sensitive values for display — mutates a deep-cloned object */
+function redactSensitive(obj: Record<string, unknown>): Record<string, unknown> {
   if (typeof obj !== 'object' || obj === null) return obj
 
   const sensitiveKeys = ['password', 'secret', 'token', 'api_key', 'apiKey']
 
   for (const key of Object.keys(obj)) {
     if (sensitiveKeys.some(sk => key.toLowerCase().includes(sk))) {
-      if (typeof obj[key] === 'string' && obj[key].length > 0) {
+      if (typeof obj[key] === 'string' && (obj[key] as string).length > 0) {
         obj[key] = '--------'
       }
     } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-      redactSensitive(obj[key], key)
+      redactSensitive(obj[key] as Record<string, unknown>)
     }
   }
 

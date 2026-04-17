@@ -1,82 +1,86 @@
 'use client'
 
-import { createElement, useEffect, useState } from 'react'
+// Thin orchestrator — owns only the two concerns that must live in the route
+// file: URL ↔ Zustand activeTab sync, and the boot data-fetching effect.
+// Everything else is delegated to focused components in src/components/boot/.
+
+import { useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { NavRail } from '@/components/layout/nav-rail'
-import { HeaderBar } from '@/components/layout/header-bar'
-import { LiveFeed } from '@/components/layout/live-feed'
-import { Dashboard } from '@/components/dashboard/dashboard'
-import { LogViewerPanel } from '@/components/panels/log-viewer-panel'
-import { CronManagementPanel } from '@/components/panels/cron-management-panel'
-import { MemoryBrowserPanel } from '@/components/panels/memory-browser-panel'
-import { CostTrackerPanel } from '@/components/panels/cost-tracker-panel'
-import { TaskBoardPanel } from '@/components/panels/task-board-panel'
-import { ActivityFeedPanel } from '@/components/panels/activity-feed-panel'
-import { AgentSquadPanelPhase3 } from '@/components/panels/agent-squad-panel-phase3'
-import { AgentCommsPanel } from '@/components/panels/agent-comms-panel'
-import { StandupPanel } from '@/components/panels/standup-panel'
-import { OrchestrationBar } from '@/components/panels/orchestration-bar'
-import { NotificationsPanel } from '@/components/panels/notifications-panel'
-import { UserManagementPanel } from '@/components/panels/user-management-panel'
-import { AuditTrailPanel } from '@/components/panels/audit-trail-panel'
-import { WebhookPanel } from '@/components/panels/webhook-panel'
-import { SettingsPanel } from '@/components/panels/settings-panel'
-import { GatewayConfigPanel } from '@/components/panels/gateway-config-panel'
-import { IntegrationsPanel } from '@/components/panels/integrations-panel'
-import { AlertRulesPanel } from '@/components/panels/alert-rules-panel'
-import { MultiGatewayPanel } from '@/components/panels/multi-gateway-panel'
-import { SuperAdminPanel } from '@/components/panels/super-admin-panel'
-import { OfficePanel } from '@/components/panels/office-panel'
-import { GitHubSyncPanel } from '@/components/panels/github-sync-panel'
-import { SkillsPanel } from '@/components/panels/skills-panel'
-import { LocalAgentsDocPanel } from '@/components/panels/local-agents-doc-panel'
-import { ChannelsPanel } from '@/components/panels/channels-panel'
-import { DebugPanel } from '@/components/panels/debug-panel'
-import { SecurityAuditPanel } from '@/components/panels/security-audit-panel'
-import { NodesPanel } from '@/components/panels/nodes-panel'
-import { ExecApprovalPanel } from '@/components/panels/exec-approval-panel'
-import { ChatPagePanel } from '@/components/panels/chat-page-panel'
-import { ChatPanel } from '@/components/chat/chat-panel'
-import { getPluginPanel } from '@/lib/plugins'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { LocalModeBanner } from '@/components/layout/local-mode-banner'
-import { UpdateBanner } from '@/components/layout/update-banner'
-import { OpenClawUpdateBanner } from '@/components/layout/openclaw-update-banner'
-import { OpenClawDoctorBanner } from '@/components/layout/openclaw-doctor-banner'
-import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
-import { Loader } from '@/components/ui/loader'
-import { ProjectManagerModal } from '@/components/modals/project-manager-modal'
-import { ExecApprovalOverlay } from '@/components/modals/exec-approval-overlay'
 import { useWebSocket } from '@/lib/websocket'
 import { useServerEvents } from '@/lib/use-server-events'
 import { completeNavigationTiming } from '@/lib/navigation-metrics'
 import { panelHref, useNavigateToPanel } from '@/lib/navigation'
-import { clearOnboardingDismissedThisSession, clearOnboardingReplayFromStart, getOnboardingSessionDecision, markOnboardingReplayFromStart, readOnboardingDismissedThisSession } from '@/lib/onboarding-session'
-import { Button } from '@/components/ui/button'
+import {
+  clearOnboardingDismissedThisSession,
+  clearOnboardingReplayFromStart,
+  getOnboardingSessionDecision,
+  markOnboardingReplayFromStart,
+  readOnboardingDismissedThisSession,
+} from '@/lib/onboarding-session'
 import { useMissionControl } from '@/store'
+import { Loader } from '@/components/ui/loader'
+import { useBootSequence } from '@/components/boot/boot-sequence'
+import { AppShell } from '@/components/boot/app-shell'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface GatewaySummary {
   id: number
   is_primary: number
 }
 
-function renderPluginPanel(panelId: string) {
-  const pluginPanel = getPluginPanel(panelId)
-  return pluginPanel ? createElement(pluginPanel) : <Dashboard />
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function isLocalHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
 
-export default function Home() {
+// ---------------------------------------------------------------------------
+// Page component
+// ---------------------------------------------------------------------------
+
+export default function Home(): React.ReactElement {
   const router = useRouter()
   const { connect } = useWebSocket()
-  const { activeTab, setActiveTab, setCurrentUser, setDashboardMode, setGatewayAvailable, setCapabilitiesChecked, setSubscription, setDefaultOrgName, setUpdateAvailable, setOpenclawUpdate, showOnboarding, setShowOnboarding, liveFeedOpen, toggleLiveFeed, showProjectManagerModal, setShowProjectManagerModal, fetchProjects, setChatPanelOpen, bootComplete, setBootComplete, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData } = useMissionControl()
+  const {
+    activeTab,
+    setActiveTab,
+    setCurrentUser,
+    setDashboardMode,
+    setGatewayAvailable,
+    setCapabilitiesChecked,
+    setSubscription,
+    setDefaultOrgName,
+    setUpdateAvailable,
+    setOpenclawUpdate,
+    setShowOnboarding,
+    bootComplete,
+    setAgents,
+    setSessions,
+    setProjects,
+    setInterfaceMode,
+    setMemoryGraphAgents,
+    setSkillsData,
+    setChatPanelOpen,
+  } = useMissionControl()
 
-  // Sync URL → Zustand activeTab
+  // Boot state: step tracking, failsafe timer, degraded-mode toast
+  const { isClient, bootDegradedWarning, initSteps, markStep, dismissDegradedWarning } = useBootSequence()
+
+  // Real-time local-DB events (tasks, agents, chat, etc.)
+  useServerEvents()
+
+  // -------------------------------------------------------------------------
+  // URL ↔ activeTab sync
+  // -------------------------------------------------------------------------
+
   const pathname = usePathname()
   const panelFromUrl = pathname === '/' ? 'overview' : pathname.slice(1)
+  // Legacy /sessions URL is aliased to /chat
   const normalizedPanel = panelFromUrl === 'sessions' ? 'chat' : panelFromUrl
 
   useEffect(() => {
@@ -89,67 +93,18 @@ export default function Home() {
 
   useEffect(() => {
     setActiveTab(normalizedPanel)
-    if (normalizedPanel === 'chat') {
-      setChatPanelOpen(false)
-    }
-    if (panelFromUrl === 'sessions') {
-      router.replace('/chat')
-    }
+    if (normalizedPanel === 'chat') setChatPanelOpen(false)
+    // Redirect the old /sessions URL to its canonical path
+    if (panelFromUrl === 'sessions') router.replace('/chat')
   }, [panelFromUrl, normalizedPanel, router, setActiveTab, setChatPanelOpen])
 
-  // Connect to SSE for real-time local DB events (tasks, agents, chat, etc.)
-  useServerEvents()
-  const [isClient, setIsClient] = useState(false)
-  const [initSteps, setInitSteps] = useState<Array<{ key: string; label: string; status: 'pending' | 'done' }>>([
-    { key: 'auth',         label: 'Authenticating operator',    status: 'pending' },
-    { key: 'capabilities', label: 'Detecting station mode',     status: 'pending' },
-    { key: 'config',       label: 'Loading control config',     status: 'pending' },
-    { key: 'connect',      label: 'Connecting runtime links',   status: 'pending' },
-    { key: 'agents',       label: 'Syncing agent registry',     status: 'pending' },
-    { key: 'sessions',     label: 'Loading active sessions',    status: 'pending' },
-    { key: 'projects',     label: 'Hydrating workspace board',  status: 'pending' },
-    { key: 'memory',       label: 'Mapping memory graph',       status: 'pending' },
-    { key: 'skills',       label: 'Indexing skill catalog',     status: 'pending' },
-  ])
-
-  const markStep = (key: string) => {
-    setInitSteps(prev => prev.map(s => s.key === key ? { ...s, status: 'done' } : s))
-  }
+  // -------------------------------------------------------------------------
+  // Boot data-fetch effect (runs once on mount)
+  // -------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!bootComplete && initSteps.every(s => s.status === 'done')) {
-      const t = setTimeout(() => setBootComplete(), 400)
-      return () => clearTimeout(t)
-    }
-  }, [initSteps, bootComplete, setBootComplete])
-
-  // Security console warning (anti-self-XSS)
-  useEffect(() => {
-    if (!bootComplete) return
-    if (typeof window === 'undefined') return
-    const key = 'mc-console-warning'
-    if (sessionStorage.getItem(key)) return
-    sessionStorage.setItem(key, '1')
-
-    console.log(
-      '%c  Stop!  ',
-      'color: #fff; background: #e53e3e; font-size: 40px; font-weight: bold; padding: 4px 16px; border-radius: 4px;'
-    )
-    console.log(
-      '%cThis is a browser feature intended for developers.\n\nIf someone told you to copy-paste something here to enable a feature or "hack" an account, it is a scam and will give them access to your account.',
-      'font-size: 14px; color: #e2e8f0; padding: 8px 0;'
-    )
-    console.log(
-      '%cLearn more: https://en.wikipedia.org/wiki/Self-XSS',
-      'font-size: 12px; color: #718096;'
-    )
-  }, [bootComplete])
-
-  useEffect(() => {
-    setIsClient(true)
-
-    // OpenClaw control-ui device identity requires a secure browser context.
-    // Redirect remote HTTP sessions to HTTPS automatically to avoid handshake failures.
+    // OpenClaw device identity requires a secure browser context.
+    // Redirect remote HTTP sessions to HTTPS to avoid handshake failures.
     if (window.location.protocol === 'http:' && !isLocalHost(window.location.hostname)) {
       const secureUrl = new URL(window.location.href)
       secureUrl.protocol = 'https:'
@@ -157,7 +112,31 @@ export default function Home() {
       return
     }
 
-    const connectWithEnvFallback = () => {
+    // Security console warning (anti-self-XSS) — shown once per session only.
+    const consoleKey = 'mc-console-warning'
+    if (!sessionStorage.getItem(consoleKey)) {
+      sessionStorage.setItem(consoleKey, '1')
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log(
+          '%c  Stop!  ',
+          'color: #fff; background: #e53e3e; font-size: 40px; font-weight: bold; padding: 4px 16px; border-radius: 4px;'
+        )
+        // eslint-disable-next-line no-console
+        console.log(
+          '%cThis is a browser feature intended for developers.\n\nIf someone told you to copy-paste something here to enable a feature or "hack" an account, it is a scam and will give them access to your account.',
+          'font-size: 14px; color: #e2e8f0; padding: 8px 0;'
+        )
+        // eslint-disable-next-line no-console
+        console.log(
+          '%cLearn more: https://en.wikipedia.org/wiki/Self-XSS',
+          'font-size: 12px; color: #718096;'
+        )
+      }
+    }
+
+    // Build a WebSocket URL from env vars as a fallback when no DB gateway exists.
+    const connectWithEnvFallback = (): void => {
       const explicitWsUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || ''
       const gatewayPort = process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789'
       const gatewayHost = process.env.NEXT_PUBLIC_GATEWAY_HOST || window.location.hostname
@@ -168,12 +147,14 @@ export default function Home() {
       connect(wsUrl)
     }
 
+    // Attempt to connect to the primary DB-configured gateway first; fall back
+    // to env-var URL if none is configured or the API call fails.
     const connectWithPrimaryGateway = async (): Promise<{ attempted: boolean; connected: boolean }> => {
       try {
-        const gatewaysRes = await fetch('/api/gateways')
+        const gatewaysRes = await fetch('/api/gateways', { signal: AbortSignal.timeout(8000) })
         if (!gatewaysRes.ok) return { attempted: false, connected: false }
         const gatewaysJson = await gatewaysRes.json().catch(() => ({}))
-        const gateways = Array.isArray(gatewaysJson?.gateways) ? gatewaysJson.gateways as GatewaySummary[] : []
+        const gateways = Array.isArray(gatewaysJson?.gateways) ? (gatewaysJson.gateways as GatewaySummary[]) : []
         if (gateways.length === 0) return { attempted: false, connected: false }
 
         const primaryGateway = gateways.find(gw => Number(gw?.is_primary) === 1) || gateways[0]
@@ -183,6 +164,7 @@ export default function Home() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: primaryGateway.id }),
+          signal: AbortSignal.timeout(8000),
         })
         if (!connectRes.ok) return { attempted: true, connected: false }
 
@@ -198,20 +180,18 @@ export default function Home() {
       }
     }
 
-    // Fetch current user
-    fetch('/api/auth/me')
+    // Auth — redirect to /login on 401
+    fetch('/api/auth/me', { signal: AbortSignal.timeout(8000) })
       .then(async (res) => {
         if (res.ok) return res.json()
-        if (res.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent(pathname)}`)
-        }
+        if (res.status === 401) router.replace(`/login?next=${encodeURIComponent(pathname)}`)
         return null
       })
       .then(data => { if (data?.user) setCurrentUser(data.user); markStep('auth') })
       .catch(() => { markStep('auth') })
 
-    // Check for available updates
-    fetch('/api/releases/check')
+    // App-update availability
+    fetch('/api/releases/check', { signal: AbortSignal.timeout(8000) })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.updateAvailable) {
@@ -224,8 +204,8 @@ export default function Home() {
       })
       .catch(() => {})
 
-    // Check for OpenClaw updates
-    fetch('/api/openclaw/version')
+    // OpenClaw-update availability
+    fetch('/api/openclaw/version', { signal: AbortSignal.timeout(8000) })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.updateAvailable) {
@@ -240,16 +220,13 @@ export default function Home() {
       })
       .catch(() => {})
 
-    // Check capabilities, then conditionally connect to gateway
-    fetch('/api/status?action=capabilities')
+    // Capabilities check — determines gateway availability and interface mode,
+    // then triggers the appropriate WebSocket connection strategy.
+    fetch('/api/status?action=capabilities', { signal: AbortSignal.timeout(8000) })
       .then(res => res.ok ? res.json() : null)
       .then(async data => {
-        if (data?.subscription) {
-          setSubscription(data.subscription)
-        }
-        if (data?.processUser) {
-          setDefaultOrgName(data.processUser)
-        }
+        if (data?.subscription)   setSubscription(data.subscription)
+        if (data?.processUser)    setDefaultOrgName(data.processUser)
         if (data?.interfaceMode === 'essential' || data?.interfaceMode === 'full') {
           setInterfaceMode(data.interfaceMode)
         }
@@ -259,7 +236,7 @@ export default function Home() {
           setCapabilitiesChecked(true)
           markStep('capabilities')
           markStep('connect')
-          // Skip WebSocket connect — no gateway to talk to
+          // Skip WebSocket — no gateway to talk to
           return
         }
         if (data && data.gateway === true) {
@@ -270,298 +247,78 @@ export default function Home() {
         markStep('capabilities')
 
         const primaryConnect = await connectWithPrimaryGateway()
-        if (!primaryConnect.connected && !primaryConnect.attempted) {
-          connectWithEnvFallback()
-        }
+        if (!primaryConnect.connected && !primaryConnect.attempted) connectWithEnvFallback()
         markStep('connect')
       })
       .catch(() => {
-        // If capabilities check fails, still try to connect
+        // Capabilities failure — still attempt env-fallback connection
         setCapabilitiesChecked(true)
         markStep('capabilities')
         markStep('connect')
         connectWithEnvFallback()
       })
 
-    // Check onboarding state
-    fetch('/api/onboarding')
+    // Onboarding state
+    fetch('/api/onboarding', { signal: AbortSignal.timeout(8000) })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         const decision = getOnboardingSessionDecision({
-          isAdmin: data?.isAdmin === true,
+          isAdmin:              data?.isAdmin === true,
           serverShowOnboarding: data?.showOnboarding === true,
-          completed: data?.completed === true,
-          skipped: data?.skipped === true,
+          completed:            data?.completed === true,
+          skipped:              data?.skipped === true,
           dismissedThisSession: readOnboardingDismissedThisSession(),
         })
-
         if (decision.shouldOpen) {
           clearOnboardingDismissedThisSession()
-          if (decision.replayFromStart) {
-            markOnboardingReplayFromStart()
-          } else {
-            clearOnboardingReplayFromStart()
-          }
+          if (decision.replayFromStart) markOnboardingReplayFromStart()
+          else clearOnboardingReplayFromStart()
           setShowOnboarding(true)
         }
         markStep('config')
       })
       .catch(() => { markStep('config') })
-    // Preload workspace data in parallel
-    Promise.allSettled([
-      fetch('/api/agents')
-        .then(r => r.ok ? r.json() : null)
-        .then((agentsData) => {
-          if (agentsData?.agents) setAgents(agentsData.agents)
-        })
-        .finally(() => { markStep('agents') }),
-      fetch('/api/sessions')
-        .then(r => r.ok ? r.json() : null)
-        .then((sessionsData) => {
-          if (sessionsData?.sessions) setSessions(sessionsData.sessions)
-        })
-        .finally(() => { markStep('sessions') }),
-      fetch('/api/projects')
-        .then(r => r.ok ? r.json() : null)
-        .then((projectsData) => {
-          if (projectsData?.projects) setProjects(projectsData.projects)
-        })
-        .finally(() => { markStep('projects') }),
-      fetch('/api/memory/graph?agent=all')
-        .then(r => r.ok ? r.json() : null)
-        .then((graphData) => {
-          if (graphData?.agents) setMemoryGraphAgents(graphData.agents)
-        })
-        .finally(() => { markStep('memory') }),
-      fetch('/api/skills')
-        .then(r => r.ok ? r.json() : null)
-        .then((skillsData) => {
-          if (skillsData?.skills) setSkillsData(skillsData.skills, skillsData.groups || [], skillsData.total || 0)
-        })
-        .finally(() => { markStep('skills') }),
-    ]).catch(() => { /* panels will lazy-load as fallback */ })
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once on mount, not on every pathname change
+    // Workspace pre-load (parallel — panels lazy-load individually on failure)
+    Promise.allSettled([
+      fetch('/api/agents', { signal: AbortSignal.timeout(8000) })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.agents) setAgents(d.agents) })
+        .finally(() => { markStep('agents') }),
+      fetch('/api/sessions', { signal: AbortSignal.timeout(5000) })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.sessions) setSessions(d.sessions) })
+        .finally(() => { markStep('sessions') }),
+      fetch('/api/projects', { signal: AbortSignal.timeout(8000) })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.projects) setProjects(d.projects) })
+        .finally(() => { markStep('projects') }),
+      fetch('/api/memory/graph?agent=all', { signal: AbortSignal.timeout(8000) })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.agents) setMemoryGraphAgents(d.agents) })
+        .finally(() => { markStep('memory') }),
+      fetch('/api/skills', { signal: AbortSignal.timeout(5000) })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.skills) setSkillsData(d.skills, d.groups || [], d.total || 0) })
+        .finally(() => { markStep('skills') }),
+    ]).catch(() => { /* panels lazy-load as fallback */ })
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once on mount; stable setters from Zustand are safe to omit
   }, [connect, router, setCurrentUser, setDashboardMode, setGatewayAvailable, setCapabilitiesChecked, setSubscription, setUpdateAvailable, setShowOnboarding, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData])
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
 
   if (!isClient || !bootComplete) {
     return <Loader variant="page" steps={isClient ? initSteps : undefined} />
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:text-sm focus:font-medium">
-        Skip to main content
-      </a>
-
-      {/* Left: Icon rail navigation (hidden on mobile, shown as bottom bar instead) */}
-      {!showOnboarding && <NavRail />}
-
-      {/* Center: Header + Content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {!showOnboarding && (
-          <>
-            <HeaderBar />
-            <LocalModeBanner />
-            <UpdateBanner />
-            <OpenClawUpdateBanner />
-            <OpenClawDoctorBanner />
-          </>
-        )}
-        <main
-          id="main-content"
-          className={`flex-1 overflow-auto pb-16 md:pb-0 ${showOnboarding ? 'pointer-events-none select-none blur-[2px] opacity-30' : ''}`}
-          role="main"
-          aria-hidden={showOnboarding}
-        >
-          <div aria-live="polite" className="flex flex-col min-h-full">
-            <ErrorBoundary key={activeTab}>
-              <ContentRouter tab={activeTab} />
-            </ErrorBoundary>
-          </div>
-          <footer className="px-4 pb-4 pt-2">
-            <p className="text-2xs text-muted-foreground/50 text-center">
-              Built with care by <a href="https://x.com/nyk_builderz" target="_blank" rel="noopener noreferrer" className="text-muted-foreground/70 hover:text-primary transition-colors duration-200">nyk</a>.
-            </p>
-          </footer>
-        </main>
-      </div>
-
-      {/* Right: Live feed (hidden on mobile) */}
-      {!showOnboarding && liveFeedOpen && (
-        <div className="hidden lg:flex h-full">
-          <LiveFeed />
-        </div>
-      )}
-
-      {/* Floating button to reopen LiveFeed when closed */}
-      {!showOnboarding && !liveFeedOpen && (
-        <button
-          onClick={toggleLiveFeed}
-          className="hidden lg:flex fixed right-0 top-1/2 -translate-y-1/2 z-30 w-6 h-12 items-center justify-center bg-card border border-r-0 border-border rounded-l-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all duration-200"
-          title="Show live feed"
-        >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M10 3l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      )}
-
-      {/* Chat panel overlay */}
-      {!showOnboarding && <ChatPanel />}
-
-      {/* Global exec approval overlay (shown regardless of active panel) */}
-      {!showOnboarding && <ExecApprovalOverlay />}
-
-      {/* Global Project Manager Modal */}
-      {!showOnboarding && showProjectManagerModal && (
-        <ProjectManagerModal
-          onClose={() => setShowProjectManagerModal(false)}
-          onChanged={async () => { await fetchProjects() }}
-        />
-      )}
-
-      <OnboardingWizard />
-    </div>
-  )
-}
-
-const ESSENTIAL_PANELS = new Set([
-  'overview', 'agents', 'tasks', 'chat', 'activity', 'logs', 'settings',
-])
-
-function ContentRouter({ tab }: { tab: string }) {
-  const { dashboardMode, interfaceMode, setInterfaceMode } = useMissionControl()
-  const navigateToPanel = useNavigateToPanel()
-  const isLocal = dashboardMode === 'local'
-
-  // Guard: show nudge for non-essential panels in essential mode
-  if (interfaceMode === 'essential' && !ESSENTIAL_PANELS.has(tab)) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center gap-4">
-        <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground capitalize">{tab.replace(/-/g, ' ')}</span> is available in Full mode.
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              setInterfaceMode('full')
-              try { await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: { 'general.interface_mode': 'full' } }) }) } catch {}
-            }}
-          >
-            Switch to Full
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigateToPanel('overview')}
-          >
-            Go to Overview
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  switch (tab) {
-    case 'overview':
-      return (
-        <>
-          <Dashboard />
-          {!isLocal && (
-            <div className="mt-4 mx-4 mb-4 rounded-lg border border-border bg-card overflow-hidden">
-              <AgentCommsPanel />
-            </div>
-          )}
-        </>
-      )
-    case 'tasks':
-      return <TaskBoardPanel />
-    case 'agents':
-      return (
-        <>
-          <OrchestrationBar />
-          {isLocal && <LocalAgentsDocPanel />}
-          <AgentSquadPanelPhase3 />
-        </>
-      )
-    case 'notifications':
-      return <NotificationsPanel />
-    case 'standup':
-      return <StandupPanel />
-    case 'sessions':
-      return <ChatPagePanel />
-    case 'logs':
-      return <LogViewerPanel />
-    case 'cron':
-      return <CronManagementPanel />
-    case 'memory':
-      return <MemoryBrowserPanel />
-    case 'cost-tracker':
-    case 'tokens':
-    case 'agent-costs':
-      return <CostTrackerPanel />
-    case 'users':
-      return <UserManagementPanel />
-    case 'history':
-    case 'activity':
-      return <ActivityFeedPanel />
-    case 'audit':
-      return <AuditTrailPanel />
-    case 'webhooks':
-      return <WebhookPanel />
-    case 'alerts':
-      return <AlertRulesPanel />
-    case 'gateways':
-      if (isLocal) return <LocalModeUnavailable panel={tab} />
-      return <MultiGatewayPanel />
-    case 'gateway-config':
-      if (isLocal) return <LocalModeUnavailable panel={tab} />
-      return <GatewayConfigPanel />
-    case 'integrations':
-      return <IntegrationsPanel />
-    case 'settings':
-      return <SettingsPanel />
-    case 'super-admin':
-      return <SuperAdminPanel />
-    case 'github':
-      return <GitHubSyncPanel />
-    case 'office':
-      return <OfficePanel />
-    case 'skills':
-      return <SkillsPanel />
-    case 'channels':
-      if (isLocal) return <LocalModeUnavailable panel={tab} />
-      return <ChannelsPanel />
-    case 'nodes':
-      if (isLocal) return <LocalModeUnavailable panel={tab} />
-      return <NodesPanel />
-    case 'security':
-      return <SecurityAuditPanel />
-    case 'debug':
-      return <DebugPanel />
-    case 'exec-approvals':
-      if (isLocal) return <LocalModeUnavailable panel={tab} />
-      return <ExecApprovalPanel />
-    case 'chat':
-      return <ChatPagePanel />
-    default: {
-      return renderPluginPanel(tab)
-    }
-  }
-}
-
-function LocalModeUnavailable({ panel }: { panel: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <p className="text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">{panel}</span> requires an OpenClaw gateway connection.
-      </p>
-      <p className="text-xs text-muted-foreground mt-1">
-        Configure a gateway to enable this panel.
-      </p>
-    </div>
+    <AppShell
+      activeTab={activeTab}
+      bootDegradedWarning={bootDegradedWarning}
+      onDismissDegraded={dismissDegradedWarning}
+    />
   )
 }

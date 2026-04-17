@@ -1,7 +1,8 @@
+import { getErrorMessage } from '@/lib/types/sql'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { runCommand } from '@/lib/command'
 
@@ -15,10 +16,7 @@ function sanitizePrompt(value: unknown): string {
  * POST /api/sessions/continue
  * Body: { kind: 'claude-code'|'codex-cli', id: string, prompt: string }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   try {
     const body = await request.json().catch(() => ({}))
     const kind = body?.kind as ContinueKind
@@ -70,10 +68,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ ok: true, reply })
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'POST /api/sessions/continue error')
-    return NextResponse.json({ error: error?.message || 'Failed to continue session' }, { status: 500 })
+    return NextResponse.json({ error: getErrorMessage(error) || 'Failed to continue session' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

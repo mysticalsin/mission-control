@@ -119,4 +119,50 @@ Run "openclaw doctor --fix" to apply changes.
     expect(result.category).toBe('general')
     expect(result.canFix).toBe(false)
   })
+
+  it('treats positive security lines as healthy, not warnings (#331)', () => {
+    const result = parseOpenClawDoctorOutput(`
+? Security
+- No channel security warnings detected.
+- Run: openclaw security audit --deep
+`, 0)
+
+    expect(result.healthy).toBe(true)
+    expect(result.level).toBe('healthy')
+    expect(result.issues).toEqual([])
+  })
+
+  it('still detects real security warnings alongside positive lines', () => {
+    const result = parseOpenClawDoctorOutput(`
+? Security
+- Channel "public" has no auth configured.
+- No channel security warnings detected.
+- Run: openclaw security audit --deep
+`, 0)
+
+    expect(result.healthy).toBe(false)
+    expect(result.level).toBe('warning')
+    expect(result.issues).toEqual([
+      'Channel "public" has no auth configured.',
+    ])
+  })
+
+  it('classifies channel connectivity warnings as general, not security (#412)', () => {
+    // The decorative "Security" section header must not promote channel
+    // connectivity warnings (not linked / channel error) into the 'security' category.
+    const CHANNEL_WARNING_OUTPUT = `
+◇  Channel warnings
+│  - whatsapp default: Not linked (no WhatsApp Web session). (Run: openclaw channels login ...)
+│  - imessage default: Channel error: disabled
+
+◇  Security
+│  No channel security warnings detected.
+`
+    const result = parseOpenClawDoctorOutput(CHANNEL_WARNING_OUTPUT, 0)
+
+    expect(result.category).not.toBe('security')
+    expect(result.category).toBe('general')
+    expect(result.issues.some(i => /whatsapp/i.test(i))).toBe(true)
+    expect(result.issues.some(i => /imessage/i.test(i))).toBe(true)
+  })
 })

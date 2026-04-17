@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { existsSync } from 'node:fs'
 import { APP_VERSION } from '@/lib/version'
+import { apiGuard } from '@/lib/api-guard'
 
 const GITHUB_RELEASES_URL =
-  'https://api.github.com/repos/builderz-labs/mission-control/releases/latest'
+  'https://api.github.com/repos/mysticalsin/mission-control/releases/latest'
 
 /** Simple semver compare: returns 1 if a > b, -1 if a < b, 0 if equal. */
 function compareSemver(a: string, b: string): number {
@@ -18,17 +19,18 @@ function compareSemver(a: string, b: string): number {
   return 0
 }
 
-export async function GET() {
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_req: NextRequest) => {
   try {
     const res = await fetch(GITHUB_RELEASES_URL, {
       headers: { Accept: 'application/vnd.github+json' },
       next: { revalidate: 3600 }, // ISR cache for 1 hour
+      signal: AbortSignal.timeout(8000),
     })
 
     if (!res.ok) {
       return NextResponse.json(
         { updateAvailable: false, currentVersion: APP_VERSION },
-        { headers: { 'Cache-Control': 'public, max-age=3600' } }
+        { headers: { 'Cache-Control': 'private, max-age=3600' } }
       )
     }
 
@@ -47,13 +49,13 @@ export async function GET() {
         releaseNotes: release.body ?? '',
         deploymentMode,
       },
-      { headers: { 'Cache-Control': 'public, max-age=3600' } }
+      { headers: { 'Cache-Control': 'private, max-age=3600' } }
     )
   } catch {
     // Network error — fail gracefully
     return NextResponse.json(
       { updateAvailable: false, currentVersion: APP_VERSION },
-      { headers: { 'Cache-Control': 'public, max-age=600' } }
+      { headers: { 'Cache-Control': 'private, max-age=600' } }
     )
   }
-}
+})

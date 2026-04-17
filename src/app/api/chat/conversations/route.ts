@@ -1,16 +1,35 @@
+import { SqlParam } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
+
+interface ConversationRow {
+  conversation_id: string
+  last_message_at: number
+  message_count: number
+  participant_count: number
+  unread_count: number
+}
+
+interface LastMessageRow {
+  id: number
+  conversation_id: string
+  from_agent: string
+  to_agent: string | null
+  content: string
+  message_type: string
+  metadata: string | null
+  read_at: number | null
+  created_at: number
+  workspace_id: number
+}
 
 /**
  * GET /api/chat/conversations - List conversations derived from messages
  * Query params: agent (filter by participant), limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -21,7 +40,7 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0')
 
     let query: string
-    const params: any[] = []
+    const params: SqlParam[] = []
 
     if (agent) {
       // Get conversations where this agent is a participant
@@ -56,18 +75,18 @@ export async function GET(request: NextRequest) {
       params.push(workspaceId, limit, offset)
     }
 
-    const conversations = db.prepare(query).all(...params) as any[]
+    const conversations = db.prepare(query).all(...params) as ConversationRow[]
 
     // Prepare last message statement once (avoids N+1)
     const lastMsgStmt = db.prepare(`
-      SELECT * FROM messages
+      SELECT id, conversation_id, from_agent, to_agent, content, message_type, metadata, read_at, created_at, workspace_id FROM messages
       WHERE conversation_id = ? AND workspace_id = ?
       ORDER BY created_at DESC
       LIMIT 1
     `);
 
     const withLastMessage = conversations.map((conv) => {
-      const lastMsg = lastMsgStmt.get(conv.conversation_id, workspaceId) as any;
+      const lastMsg = lastMsgStmt.get(conv.conversation_id, workspaceId) as LastMessageRow | undefined;
 
       return {
         ...conv,
@@ -82,7 +101,7 @@ export async function GET(request: NextRequest) {
 
     // Get total count for pagination
     let countQuery: string
-    const countParams: any[] = [workspaceId]
+    const countParams: SqlParam[] = [workspaceId]
     if (agent) {
       countQuery = `
         SELECT COUNT(DISTINCT m.conversation_id) as total
@@ -100,4 +119,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/chat/conversations error')
     return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 })
   }
-}
+})

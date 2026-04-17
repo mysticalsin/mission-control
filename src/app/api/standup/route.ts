@@ -1,15 +1,47 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server';
 import { getDatabase, db_helpers } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
+import { apiGuard } from '@/lib/api-guard';
 import { logger } from '@/lib/logger';
+
+interface AgentRow {
+  id: number
+  name: string
+  role: string
+  session_key: string | null
+  status: string
+  last_seen: number | null
+  last_activity: number | null
+  created_at: number
+  updated_at: number
+  config: string | null
+  workspace_id: number
+  source: string | null
+  content_hash: string | null
+  workspace_path: string | null
+}
+
+interface CompletedTaskRow {
+  id: number
+  title: string
+  status: string
+  updated_at: number
+}
+
+interface BlockedTaskRow {
+  id: number
+  title: string
+  status: string
+  priority: string
+  created_at: number
+  metadata: string | null
+}
 
 /**
  * POST /api/standup/generate - Generate daily standup report
  * Body: { date?: string, agents?: string[] }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -25,8 +57,8 @@ export async function POST(request: NextRequest) {
     const endOfDay = Math.floor(new Date(`${targetDate}T23:59:59Z`).getTime() / 1000);
     
     // Get all active agents or filter by specific agents
-    let agentQuery = 'SELECT * FROM agents WHERE workspace_id = ?';
-    const agentParams: any[] = [workspaceId];
+    let agentQuery = 'SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE workspace_id = ?';
+    const agentParams: SqlParam[] = [workspaceId];
     
     if (specificAgents && Array.isArray(specificAgents) && specificAgents.length > 0) {
       const placeholders = specificAgents.map(() => '?').join(',');
@@ -36,7 +68,7 @@ export async function POST(request: NextRequest) {
     
     agentQuery += ' ORDER BY name';
     
-    const agents = db.prepare(agentQuery).all(...agentParams) as any[];
+    const agents = db.prepare(agentQuery).all(...agentParams) as AgentRow[];
     
     // Prepare statements once (avoids N+1 per agent)
     const completedTasksStmt = db.prepare(`
@@ -136,12 +168,12 @@ export async function POST(request: NextRequest) {
     
     // Identify team accomplishments and blockers
     const teamAccomplishments = standupData
-      .flatMap(agent => agent.completedToday.map(task => ({ ...task as any, agent: agent.agent.name })))
-      .sort((a: any, b: any) => b.updated_at - a.updated_at);
+      .flatMap(agent => (agent.completedToday as CompletedTaskRow[]).map(task => ({ ...task, agent: agent.agent.name })))
+      .sort((a, b) => b.updated_at - a.updated_at);
     
     const teamBlockers = standupData
-      .flatMap(agent => agent.blocked.map(task => ({ ...task as any, agent: agent.agent.name })))
-      .sort((a: any, b: any) => {
+      .flatMap(agent => (agent.blocked as BlockedTaskRow[]).map(task => ({ ...task, agent: agent.agent.name })))
+      .sort((a, b) => {
         // Sort by priority then by creation date
         const priorityOrder: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
         return (priorityOrder[b.priority] || 0) - (priorityOrder[a.priority] || 0) || a.created_at - b.created_at;
@@ -212,15 +244,13 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/standup/generate error');
     return NextResponse.json({ error: 'Failed to generate standup' }, { status: 500 });
   }
-}
+})
 
 /**
  * GET /api/standup/history - Get previous standup reports
  * Query params: limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -263,4 +293,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/standup/history error');
     return NextResponse.json({ error: 'Failed to fetch standup history' }, { status: 500 });
   }
-}
+})

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { existsSync, statSync } from 'node:fs'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { runCommand } from '@/lib/command'
 
 const DEFAULT_DOWNLOAD_URL = 'https://flightdeck.example.com/download'
@@ -47,10 +48,7 @@ function resolveFlightDeckInstallPath(): string | null {
  * GET /api/local/flight-deck
  * Check Flight Deck local installation status.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   const installPath = resolveFlightDeckInstallPath()
   const installed = installPath ? isInstalled(installPath) : false
 
@@ -60,16 +58,13 @@ export async function GET(request: NextRequest) {
     appUrl: getFlightDeckBaseUrl(),
     downloadUrl: DEFAULT_DOWNLOAD_URL,
   })
-}
+})
 
 /**
  * POST /api/local/flight-deck
  * Build a Flight Deck URL for the selected agent/session.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const installPath = resolveFlightDeckInstallPath()
   const installed = installPath ? isInstalled(installPath) : false
   if (!installed) {
@@ -98,15 +93,15 @@ export async function POST(request: NextRequest) {
   try {
     // Launch the native app directly; pass deep-link as payload.
     await runCommand('open', ['-a', installPath!, launchUrl.toString()], { timeoutMs: 10_000 })
-  } catch (error: any) {
+  } catch (error: unknown) {
     try {
       // Fallback for apps registered as URL handlers.
       await runCommand('open', [launchUrl.toString()], { timeoutMs: 10_000 })
-    } catch (fallbackError: any) {
+    } catch (fallbackError: unknown) {
       return NextResponse.json({
         installed: true,
         launched: false,
-        error: fallbackError?.message || error?.message || 'Failed to launch Flight Deck app.',
+        error: getErrorMessage(fallbackError) || getErrorMessage(error) || 'Failed to launch Flight Deck app.',
         fallbackUrl: webUrl.toString(),
         downloadUrl: DEFAULT_DOWNLOAD_URL,
       }, { status: 500 })
@@ -119,6 +114,6 @@ export async function POST(request: NextRequest) {
     url: webUrl.toString(),
     launchUrl: launchUrl.toString(),
   })
-}
+})
 
 export const dynamic = 'force-dynamic'

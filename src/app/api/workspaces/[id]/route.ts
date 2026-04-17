@@ -1,25 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { logger } from '@/lib/logger'
+
+interface WorkspaceRow {
+  id: number
+  slug: string
+  name: string
+  tenant_id: number
+  created_at: number
+  updated_at: number
+}
 
 /**
  * GET /api/workspaces/[id] - Get a single workspace
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1)
     const tenantId = auth.user.tenant_id ?? 1
 
     const workspace = db.prepare(
-      'SELECT * FROM workspaces WHERE id = ? AND tenant_id = ?'
+      'SELECT id, slug, name, tenant_id, created_at, updated_at FROM workspaces WHERE id = ? AND tenant_id = ?'
     ).get(Number(id), tenantId)
 
     if (!workspace) {
@@ -32,27 +35,21 @@ export async function GET(
     ).get(Number(id)) as { agent_count: number }
 
     return NextResponse.json({
-      workspace: { ...(workspace as any), agent_count: stats.agent_count },
+      workspace: { ...(workspace as WorkspaceRow), agent_count: stats.agent_count },
     })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/workspaces/[id] error')
     return NextResponse.json({ error: 'Failed to fetch workspace' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/workspaces/[id] - Update workspace name
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1)
     const tenantId = auth.user.tenant_id ?? 1
     const body = await request.json()
     const { name } = body
@@ -62,8 +59,8 @@ export async function PUT(
     }
 
     const existing = db.prepare(
-      'SELECT * FROM workspaces WHERE id = ? AND tenant_id = ?'
-    ).get(Number(id), tenantId) as any
+      'SELECT id, slug, name, tenant_id, created_at, updated_at FROM workspaces WHERE id = ? AND tenant_id = ?'
+    ).get(Number(id), tenantId) as WorkspaceRow | undefined
 
     if (!existing) {
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
@@ -84,33 +81,27 @@ export async function PUT(
       detail: { old_name: existing.name, new_name: name.trim() },
     })
 
-    const updated = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(Number(id))
+    const updated = db.prepare('SELECT id, slug, name, tenant_id, created_at, updated_at FROM workspaces WHERE id = ?').get(Number(id))
     return NextResponse.json({ workspace: updated })
   } catch (error) {
     logger.error({ err: error }, 'PUT /api/workspaces/[id] error')
     return NextResponse.json({ error: 'Failed to update workspace' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/workspaces/[id] - Delete a workspace (moves agents to default workspace)
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-1)
     const tenantId = auth.user.tenant_id ?? 1
     const workspaceId = Number(id)
 
     const existing = db.prepare(
-      'SELECT * FROM workspaces WHERE id = ? AND tenant_id = ?'
-    ).get(workspaceId, tenantId) as any
+      'SELECT id, slug, name, tenant_id, created_at, updated_at FROM workspaces WHERE id = ? AND tenant_id = ?'
+    ).get(workspaceId, tenantId) as WorkspaceRow | undefined
 
     if (!existing) {
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
@@ -155,7 +146,7 @@ export async function DELETE(
         detail: {
           name: existing.name,
           slug: existing.slug,
-          agents_moved: (moved as any).changes,
+          agents_moved: moved.changes,
           moved_to_workspace: fallbackId,
         },
       })
@@ -170,4 +161,4 @@ export async function DELETE(
     logger.error({ err: error }, 'DELETE /api/workspaces/[id] error')
     return NextResponse.json({ error: 'Failed to delete workspace' }, { status: 500 })
   }
-}
+})

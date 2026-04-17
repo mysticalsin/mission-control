@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
-import { mutationLimiter } from '@/lib/rate-limit'
 
 interface ApiKeyRow {
   value: string
@@ -22,10 +21,7 @@ function maskApiKey(key: string): string {
 /**
  * GET /api/tokens/rotate - Get metadata about the current API key
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   const db = getDatabase()
 
   // Check for DB-stored override first
@@ -59,18 +55,12 @@ export async function GET(request: NextRequest) {
     last_rotated_at: null,
     last_rotated_by: null,
   })
-}
+})
 
 /**
  * POST /api/tokens/rotate - Generate and store a new API key
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   // Generate a new key: mc_ prefix + 32 random hex chars
   const newKey = 'mc_' + randomBytes(24).toString('hex')
 
@@ -119,4 +109,4 @@ export async function POST(request: NextRequest) {
     rotated_by: auth.user.username,
     message: 'API key rotated successfully. Copy the key now — it will not be shown again.',
   })
-}
+})

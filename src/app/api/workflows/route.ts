@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { validateBody, createWorkflowSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { scanForInjection } from '@/lib/injection-guard'
 
@@ -25,15 +25,12 @@ export interface WorkflowTemplate {
 /**
  * GET /api/workflows - List all workflow templates
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const templates = db
-      .prepare('SELECT * FROM workflow_templates WHERE workspace_id = ? ORDER BY use_count DESC, updated_at DESC')
+      .prepare('SELECT id, name, description, model, task_prompt, timeout_seconds, agent_role, tags, created_by, created_at, updated_at, last_used_at, use_count, workspace_id FROM workflow_templates WHERE workspace_id = ? ORDER BY use_count DESC, updated_at DESC')
       .all(workspaceId) as WorkflowTemplate[]
 
     const parsed = templates.map(t => ({
@@ -46,18 +43,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/workflows error')
     return NextResponse.json({ error: 'Failed to fetch templates' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/workflows - Create a new workflow template
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const result = await validateBody(request, createWorkflowSchema)
     if ('error' in result) return result.error
@@ -96,7 +87,7 @@ export async function POST(request: NextRequest) {
     )
 
     const template = db
-      .prepare('SELECT * FROM workflow_templates WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, name, description, model, task_prompt, timeout_seconds, agent_role, tags, created_by, created_at, updated_at, last_used_at, use_count, workspace_id FROM workflow_templates WHERE id = ? AND workspace_id = ?')
       .get(insertResult.lastInsertRowid, workspaceId) as WorkflowTemplate
 
     db_helpers.logActivity(
@@ -116,18 +107,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/workflows error')
     return NextResponse.json({ error: 'Failed to create template' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/workflows - Update a workflow template
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -139,19 +124,33 @@ export async function PUT(request: NextRequest) {
     }
 
     const existing = db
-      .prepare('SELECT * FROM workflow_templates WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, name, description, model, task_prompt, timeout_seconds, agent_role, tags, created_by, created_at, updated_at, last_used_at, use_count, workspace_id FROM workflow_templates WHERE id = ? AND workspace_id = ?')
       .get(id, workspaceId) as WorkflowTemplate
     if (!existing) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 })
     }
 
     const fields: string[] = []
-    const params: any[] = []
+    const params: SqlParam[] = []
 
     if (updates.name !== undefined) { fields.push('name = ?'); params.push(updates.name) }
     if (updates.description !== undefined) { fields.push('description = ?'); params.push(updates.description) }
     if (updates.model !== undefined) { fields.push('model = ?'); params.push(updates.model) }
-    if (updates.task_prompt !== undefined) { fields.push('task_prompt = ?'); params.push(updates.task_prompt) }
+    if (updates.task_prompt !== undefined) {
+      // Scan updated task_prompt for injection — same guard as POST
+      const injectionReport = scanForInjection(updates.task_prompt, { context: 'prompt' })
+      if (!injectionReport.safe) {
+        const criticals = injectionReport.matches.filter(m => m.severity === 'critical')
+        if (criticals.length > 0) {
+          logger.warn({ id, rules: criticals.map(m => m.rule) }, 'Blocked workflow update: injection detected in task_prompt')
+          return NextResponse.json(
+            { error: 'Task prompt blocked: potentially unsafe content detected', injection: criticals.map(m => ({ rule: m.rule, description: m.description })) },
+            { status: 422 }
+          )
+        }
+      }
+      fields.push('task_prompt = ?'); params.push(updates.task_prompt)
+    }
     if (updates.timeout_seconds !== undefined) { fields.push('timeout_seconds = ?'); params.push(updates.timeout_seconds) }
     if (updates.agent_role !== undefined) { fields.push('agent_role = ?'); params.push(updates.agent_role) }
     if (updates.tags !== undefined) { fields.push('tags = ?'); params.push(JSON.stringify(updates.tags)) }
@@ -170,31 +169,27 @@ export async function PUT(request: NextRequest) {
     db.prepare(`UPDATE workflow_templates SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...params)
 
     const updated = db
-      .prepare('SELECT * FROM workflow_templates WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, name, description, model, task_prompt, timeout_seconds, agent_role, tags, created_by, created_at, updated_at, last_used_at, use_count, workspace_id FROM workflow_templates WHERE id = ? AND workspace_id = ?')
       .get(id, workspaceId) as WorkflowTemplate
     return NextResponse.json({ template: { ...updated, tags: updated.tags ? JSON.parse(updated.tags) : [] } })
   } catch (error) {
     logger.error({ err: error }, 'PUT /api/workflows error')
     return NextResponse.json({ error: 'Failed to update template' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/workflows - Delete a workflow template
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    let body: any
-    try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
-    const id = body.id
+    let reqBody: Record<string, unknown>
+    try { reqBody = await request.json() as Record<string, unknown> } catch {
+      return NextResponse.json({ error: 'Request body required' }, { status: 400 })
+    }
+    const id = reqBody.id ? String(reqBody.id) : null
 
     if (!id) {
       return NextResponse.json({ error: 'Template ID is required' }, { status: 400 })
@@ -209,4 +204,4 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/workflows error')
     return NextResponse.json({ error: 'Failed to delete template' }, { status: 500 })
   }
-}
+})

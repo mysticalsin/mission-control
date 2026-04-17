@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 
 const VERSION = '1.3.0'
-export const revalidate = 300
 
 interface Endpoint {
   path: string
@@ -131,14 +131,14 @@ const endpoints: Endpoint[] = [
   { path: '/api/super/os-users', methods: ['GET'], description: 'OS user listing', tag: 'Super Admin', auth: 'admin' },
 
   // ── System ────────────────────────────────────────
-  { path: '/api/status', methods: ['GET'], description: 'System status & capabilities', tag: 'System', auth: 'public' },
+  { path: '/api/status', methods: ['GET'], description: 'System status & capabilities (?action=health is public for probes)', tag: 'System', auth: 'viewer' },
   { path: '/api/audit', methods: ['GET'], description: 'Audit trail', tag: 'System', auth: 'admin' },
   { path: '/api/backup', methods: ['POST'], description: 'Database backup', tag: 'System', auth: 'admin' },
   { path: '/api/cleanup', methods: ['POST'], description: 'Database cleanup', tag: 'System', auth: 'admin' },
   { path: '/api/export', methods: ['GET'], description: 'Data export', tag: 'System', auth: 'viewer' },
   { path: '/api/workload', methods: ['GET'], description: 'Agent workload stats', tag: 'System', auth: 'viewer' },
-  { path: '/api/releases/check', methods: ['GET'], description: 'Check for updates', tag: 'System', auth: 'public' },
-  { path: '/api/openclaw/version', methods: ['GET'], description: 'Installed OpenClaw version and latest release metadata', tag: 'System', auth: 'public' },
+  { path: '/api/releases/check', methods: ['GET'], description: 'Check for updates', tag: 'System', auth: 'viewer' },
+  { path: '/api/openclaw/version', methods: ['GET'], description: 'Installed OpenClaw version and latest release metadata', tag: 'System', auth: 'viewer' },
   { path: '/api/openclaw/update', methods: ['POST'], description: 'Update OpenClaw to the latest stable release', tag: 'System', auth: 'admin' },
   { path: '/api/openclaw/doctor', methods: ['GET', 'POST'], description: 'Inspect and fix OpenClaw configuration drift', tag: 'System', auth: 'admin' },
 
@@ -148,13 +148,13 @@ const endpoints: Endpoint[] = [
   { path: '/api/local/terminal', methods: ['POST'], description: 'Local terminal command', tag: 'Local', auth: 'admin' },
 
   // ── Docs ──────────────────────────────────────────
-  { path: '/api/docs', methods: ['GET'], description: 'OpenAPI spec (JSON)', tag: 'Docs', auth: 'public' },
+  { path: '/api/docs', methods: ['GET'], description: 'OpenAPI spec (JSON)', tag: 'Docs', auth: 'viewer' },
   { path: '/api/docs/tree', methods: ['GET'], description: 'Documentation tree', tag: 'Docs', auth: 'public' },
   { path: '/api/docs/content', methods: ['GET'], description: 'Documentation page content', tag: 'Docs', auth: 'public' },
   { path: '/api/docs/search', methods: ['GET'], description: 'Documentation search', tag: 'Docs', auth: 'public' },
 
   // ── Discovery ─────────────────────────────────────
-  { path: '/api/index', methods: ['GET'], description: 'API endpoint catalog (this endpoint)', tag: 'Discovery', auth: 'public' },
+  { path: '/api/index', methods: ['GET'], description: 'API endpoint catalog (this endpoint)', tag: 'Discovery', auth: 'viewer' },
 ]
 
 const payload = {
@@ -174,10 +174,10 @@ const payload = {
   },
 }
 
-export async function GET() {
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'none' }, async () => {
   return NextResponse.json(payload, {
     headers: {
-      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+      'Cache-Control': 'private, max-age=300',
     },
   })
-}
+})

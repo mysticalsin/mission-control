@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 const PREFS_KEY = 'chat.session_prefs.v1'
@@ -45,26 +45,20 @@ function savePrefs(prefs: SessionPrefs, username: string) {
   )
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, _auth) => {
   try {
     return NextResponse.json({ prefs: loadPrefs() })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/chat/session-prefs error')
     return NextResponse.json({ error: 'Failed to load preferences' }, { status: 500 })
   }
-}
+})
 
 /**
  * PATCH /api/chat/session-prefs
  * Body: { key: "claude-code:<sessionId>", name?: string, color?: string | null }
  */
-export async function PATCH(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PATCH = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const body = await request.json().catch(() => ({}))
     const key = typeof body?.key === 'string' ? body.key.trim() : ''
@@ -103,6 +97,6 @@ export async function PATCH(request: NextRequest) {
     logger.error({ err: error }, 'PATCH /api/chat/session-prefs error')
     return NextResponse.json({ error: 'Failed to update preferences' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

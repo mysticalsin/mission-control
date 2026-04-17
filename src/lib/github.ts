@@ -1,5 +1,5 @@
 /**
- * GitHub API client for Mission Control issue sync.
+ * GitHub API client for Ultron Mission Control issue sync.
  * Uses GITHUB_TOKEN from env (integration key, not core config).
  */
 
@@ -48,7 +48,7 @@ export async function githubFetch(
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github.v3+json',
-    'User-Agent': 'MissionControl/1.0',
+    'User-Agent': 'UltronMissionControl/1.0',
     ...(options.headers as Record<string, string> || {}),
   }
 
@@ -101,7 +101,7 @@ export async function fetchIssues(
 
   const data = await res.json()
   // Filter out pull requests (GitHub API returns PRs in issues endpoint)
-  return (data as any[]).filter((item: any) => !item.pull_request)
+  return (data as GitHubIssue[]).filter((item: GitHubIssue & { pull_request?: unknown }) => !item.pull_request)
 }
 
 /**

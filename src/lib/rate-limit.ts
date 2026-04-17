@@ -12,6 +12,23 @@ interface RateLimiterOptions {
   message?: string
   /** If true, MC_DISABLE_RATE_LIMIT will not bypass this limiter */
   critical?: boolean
+  /** Max entries in the backing map before evicting oldest (default: 10_000) */
+  maxEntries?: number
+}
+
+const DEFAULT_MAX_ENTRIES = 10_000
+
+/** Evict the entry with the earliest resetAt when at capacity */
+function evictOldest(store: Map<string, RateLimitEntry>) {
+  let oldestKey: string | null = null
+  let oldestReset = Infinity
+  for (const [key, entry] of store) {
+    if (entry.resetAt < oldestReset) {
+      oldestReset = entry.resetAt
+      oldestKey = key
+    }
+  }
+  if (oldestKey) store.delete(oldestKey)
 }
 
 // Trusted proxy IPs (comma-separated). Only parse XFF when behind known proxies.
@@ -41,6 +58,7 @@ export function extractClientIp(request: Request): string {
 
 export function createRateLimiter(options: RateLimiterOptions) {
   const store = new Map<string, RateLimitEntry>()
+  const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES
 
   // Periodic cleanup every 60s
   const cleanupInterval = setInterval(() => {
@@ -53,13 +71,17 @@ export function createRateLimiter(options: RateLimiterOptions) {
   if (cleanupInterval.unref) cleanupInterval.unref()
 
   return function checkRateLimit(request: Request): NextResponse | null {
-    // Allow disabling non-critical rate limiting for E2E tests
-    if (process.env.MC_DISABLE_RATE_LIMIT === '1' && !options.critical) return null
     const ip = extractClientIp(request)
+    // Allow disabling non-critical rate limiting for E2E tests.
+    // Only bypass for unknown/loopback sources — explicit IPs (e.g. mutation-limiter
+    // tests that set x-real-ip) still exercise the limiter even when the flag is set.
+    if (process.env.MC_DISABLE_RATE_LIMIT === '1' && !options.critical &&
+        (ip === 'unknown' || ip === '127.0.0.1' || ip === '::1')) return null
     const now = Date.now()
     const entry = store.get(ip)
 
     if (!entry || now > entry.resetAt) {
+      if (!entry && store.size >= maxEntries) evictOldest(store)
       store.set(ip, { count: 1, resetAt: now + options.windowMs })
       return null
     }
@@ -81,7 +103,11 @@ export const loginLimiter = createRateLimiter({
   windowMs: 60_000,
   maxRequests: 5,
   message: 'Too many login attempts. Try again in a minute.',
-  critical: true,
+  // critical: true normally prevents MC_DISABLE_RATE_LIMIT from bypassing this limiter.
+  // In test environments (MC_DISABLE_RATE_LIMIT=1) we allow the bypass so that E2E
+  // test setup can call /api/auth/login freely without exhausting the 5-req/min window.
+  // Production deployments never set MC_DISABLE_RATE_LIMIT, so critical: true applies.
+  critical: process.env.MC_DISABLE_RATE_LIMIT !== '1',
 })
 
 export const mutationLimiter = createRateLimiter({
@@ -113,6 +139,7 @@ export const heavyLimiter = createRateLimiter({
  */
 export function createAgentRateLimiter(options: RateLimiterOptions) {
   const store = new Map<string, RateLimitEntry>()
+  const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES
 
   const cleanupInterval = setInterval(() => {
     const now = Date.now()
@@ -131,6 +158,7 @@ export function createAgentRateLimiter(options: RateLimiterOptions) {
     const entry = store.get(key)
 
     if (!entry || now > entry.resetAt) {
+      if (!entry && store.size >= maxEntries) evictOldest(store)
       store.set(key, { count: 1, resetAt: now + options.windowMs })
       return null
     }

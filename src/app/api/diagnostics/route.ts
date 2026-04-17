@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import net from 'node:net'
 import { existsSync, statSync } from 'node:fs'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { getDatabase } from '@/lib/db'
 import { runOpenClaw } from '@/lib/command'
@@ -16,10 +16,7 @@ const INSECURE_PASSWORDS = new Set([
   'testpass123',
 ])
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   try {
     const [version, security, database, agents, sessions, gateway] = await Promise.all([
       getVersionInfo(),
@@ -51,7 +48,7 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'Diagnostics API error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
 async function getVersionInfo() {
   let openclaw: string | null = null

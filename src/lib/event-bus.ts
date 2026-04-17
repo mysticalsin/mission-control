@@ -7,7 +7,7 @@ import { EventEmitter } from 'events'
 
 export interface ServerEvent {
   type: string
-  data: any
+  data: unknown
   timestamp: number
 }
 
@@ -32,6 +32,31 @@ export type EventType =
   | 'connection.created'
   | 'connection.disconnected'
   | 'github.synced'
+  | 'health.check_completed'
+  | 'health.circuit_tripped'
+  | 'health.circuit_recovered'
+  | 'health.recovery_attempted'
+  | 'health.service_degraded'
+  | 'health.service_restored'
+  | 'learning.pattern_stored'
+  | 'learning.pattern_applied'
+  | 'learning.feedback_received'
+  | 'improving.regression_detected'
+  | 'improving.suggestion_created'
+  | 'improving.cost_spike'
+  | 'agent.cognitive_load_updated'
+  | 'leaderboard.updated'
+  | 'brief.generated'
+  | 'council.deliberation_started'
+  | 'council.deliberation_completed'
+  | 'council.vote_cast'
+  | 'council.synthesis_reached'
+  | 'browse.step_completed'
+  | 'browse.page_captured'
+  | 'browse.session_ended'
+  | 'governance.gate_passed'
+  | 'governance.gate_failed'
+  | 'governance.review_required'
 
 class ServerEventBus extends EventEmitter {
   private static instance: ServerEventBus | null = null
@@ -51,7 +76,7 @@ class ServerEventBus extends EventEmitter {
   /**
    * Broadcast an event to all SSE listeners
    */
-  broadcast(type: EventType, data: any): ServerEvent {
+  broadcast(type: EventType, data: unknown): ServerEvent {
     const event: ServerEvent = { type, data, timestamp: Date.now() }
     this.emit('server-event', event)
     return event

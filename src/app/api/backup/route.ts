@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { getErrorMessage, toError } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config, ensureDirExists } from '@/lib/config'
 import { join, dirname } from 'path'
 import { readdirSync, statSync, unlinkSync } from 'fs'
-import { heavyLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { runOpenClaw } from '@/lib/command'
 
@@ -14,10 +14,7 @@ const MAX_BACKUPS = 10
 /**
  * GET /api/backup - List existing backups (admin only)
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, _auth) => {
   ensureDirExists(BACKUP_DIR)
 
   try {
@@ -33,22 +30,17 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.created_at - a.created_at)
 
-    return NextResponse.json({ backups: files, dir: BACKUP_DIR })
+    // SECURITY: Do not expose absolute backup dir path (HIGH-5/MEDIUM-7 fix)
+    return NextResponse.json({ backups: files, count: files.length })
   } catch {
-    return NextResponse.json({ backups: [], dir: BACKUP_DIR })
+    return NextResponse.json({ backups: [], count: 0 })
   }
-}
+})
 
 /**
  * POST /api/backup - Create a new backup (admin only)
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = heavyLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const target = request.nextUrl.searchParams.get('target')
 
   // Gateway state backup via `openclaw backup create`
@@ -62,15 +54,15 @@ export async function POST(request: NextRequest) {
         const result = await runOpenClaw(['backup', 'create', '--output', BACKUP_DIR], { timeoutMs: 60000 })
         stdout = result.stdout
         stderr = result.stderr
-      } catch (error: any) {
+      } catch (error: unknown) {
         // openclaw backup may exit non-zero despite success — check output
-        stdout = error.stdout || ''
-        stderr = error.stderr || ''
+        const errObj = toError(error) as Error & { stdout?: string; stderr?: string }
+        stdout = errObj.stdout || ''
+        stderr = errObj.stderr || ''
         const combined = `${stdout}\n${stderr}`
         if (!combined.includes('Created')) {
-          const message = stderr || error.message || 'Unknown error'
-          logger.error({ err: error }, 'Gateway backup failed')
-          return NextResponse.json({ error: `Gateway backup failed: ${message}` }, { status: 500 })
+          logger.error({ err: error, stderr }, 'Gateway backup failed')
+          return NextResponse.json({ error: 'Gateway backup failed. Check server logs for details.' }, { status: 500 })
         }
       }
 
@@ -85,9 +77,9 @@ export async function POST(request: NextRequest) {
       })
 
       return NextResponse.json({ success: true, output })
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error({ err: error }, 'Gateway backup failed')
-      return NextResponse.json({ error: `Gateway backup failed: ${error.message}` }, { status: 500 })
+      return NextResponse.json({ error: `Gateway backup failed: ${getErrorMessage(error)}` }, { status: 500 })
     }
   }
 
@@ -123,22 +115,19 @@ export async function POST(request: NextRequest) {
         created_at: Math.floor(stat.mtimeMs / 1000),
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'Backup failed')
-    return NextResponse.json({ error: `Backup failed: ${error.message}` }, { status: 500 })
+    return NextResponse.json({ error: 'Backup failed. Check server logs for details.' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/backup?name=<filename> - Delete a specific backup (admin only)
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  let body: any
-  try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
-  const name = body.name
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
+  let body: Record<string, unknown>
+  try { body = await request.json() as Record<string, unknown> } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
+  const name = typeof body['name'] === 'string' ? body['name'] : null
 
   if (!name || !name.endsWith('.db') || name.includes('/') || name.includes('..')) {
     return NextResponse.json({ error: 'Invalid backup name' }, { status: 400 })
@@ -161,7 +150,7 @@ export async function DELETE(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Backup not found' }, { status: 404 })
   }
-}
+})
 
 function pruneOldBackups() {
   try {

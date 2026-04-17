@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import {
   runOutputEvals,
@@ -12,13 +11,15 @@ import {
   type EvalResult,
 } from '@/lib/agent-evals'
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+interface EvalRunRow {
+  eval_layer: string
+  score: number
+  passed: number
+  detail: string | null
+  created_at: number
+}
 
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (request, auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const agent = searchParams.get('agent')
@@ -40,15 +41,11 @@ export async function GET(request: NextRequest) {
         WHERE agent_name = ? AND workspace_id = ?
         ORDER BY created_at DESC
         LIMIT ?
-      `).all(agent, workspaceId, weeks * 7) as any[]
+      `).all(agent, workspaceId, weeks * 7) as EvalRunRow[]
 
       const driftTimeline = getDriftTimeline(agent, weeks, workspaceId)
 
-      return NextResponse.json({
-        agent,
-        history,
-        driftTimeline,
-      })
+      return NextResponse.json({ agent, history, driftTimeline })
     }
 
     // Default: latest eval results per layer
@@ -63,7 +60,7 @@ export async function GET(request: NextRequest) {
         GROUP BY eval_layer
       ) latest ON e.eval_layer = latest.eval_layer AND e.created_at = latest.max_created
       WHERE e.agent_name = ? AND e.workspace_id = ?
-    `).all(agent, workspaceId, agent, workspaceId) as any[]
+    `).all(agent, workspaceId, agent, workspaceId) as EvalRunRow[]
 
     const driftResults = runDriftCheck(agent, workspaceId)
     const hasDrift = driftResults.some(d => d.drifted)
@@ -71,29 +68,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       agent,
       layers: latestByLayer,
-      drift: {
-        hasDrift,
-        metrics: driftResults,
-      },
+      drift: { hasDrift, metrics: driftResults },
     })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/agents/evals error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
+/**
+ * POST /api/agents/evals
+ *
+ * action === 'run'        → operator role
+ * action === 'golden-set' → admin role (enforced inline after outer operator guard)
+ *
+ * WHY: Both actions share the same endpoint but have different privilege requirements.
+ * The outer guard rejects unauthenticated callers; the inline check escalates to admin
+ * for the golden-set action without requiring a second endpoint.
+ */
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const body = await request.json()
     const { action } = body
 
     if (action === 'run') {
-      const auth = requireRole(request, 'operator')
-      if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-      const rateCheck = mutationLimiter(request)
-      if (rateCheck) return rateCheck
-
       const { agent, layer } = body
       if (!agent) return NextResponse.json({ error: 'Missing: agent' }, { status: 400 })
 
@@ -141,11 +139,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'golden-set') {
-      const auth = requireRole(request, 'admin')
-      if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-      const rateCheck = mutationLimiter(request)
-      if (rateCheck) return rateCheck
+      // WHY: golden-set is an admin-only action; outer guard already ensures operator minimum
+      if (auth.user.role !== 'admin') {
+        return NextResponse.json({ error: 'Admin role required for golden-set action' }, { status: 403 })
+      }
 
       const { name, entries } = body
       if (!name) return NextResponse.json({ error: 'Missing: name' }, { status: 400 })
@@ -168,4 +165,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/agents/evals error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

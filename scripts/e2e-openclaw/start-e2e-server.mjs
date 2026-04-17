@@ -51,7 +51,7 @@ const baseEnv = {
   ...process.env,
   API_KEY: process.env.API_KEY || 'test-api-key-e2e-12345',
   AUTH_USER: process.env.AUTH_USER || 'admin',
-  AUTH_PASS: process.env.AUTH_PASS || 'admin',
+  AUTH_PASS: process.env.AUTH_PASS || 'testpass1234!',
   MISSION_CONTROL_TEST_MODE: process.env.MISSION_CONTROL_TEST_MODE || '1',
   MC_DISABLE_RATE_LIMIT: '1',
   MISSION_CONTROL_DATA_DIR: dataDir,
@@ -67,6 +67,14 @@ const baseEnv = {
   MC_SKILLS_PROJECT_AGENTS_DIR: path.join(skillsRoot, 'project-agents'),
   MC_SKILLS_PROJECT_CODEX_DIR: path.join(skillsRoot, 'project-codex'),
   MC_SKILLS_OPENCLAW_DIR: path.join(skillsRoot, 'openclaw'),
+  // WHY: Workload-signal tests validate agent-ratio recommendations (idle/busy/offline).
+  // Accumulated tasks from other test files in the same run can push queue depth above the
+  // normal (20) / throttle (50) / shed (100) defaults, causing queue-depth checks to fire
+  // before agent-ratio checks. Raising all three thresholds to a value that will never be
+  // reached in a single E2E run keeps the tests isolated to agent-ratio behaviour.
+  MC_WORKLOAD_QUEUE_DEPTH_NORMAL: '99999',
+  MC_WORKLOAD_QUEUE_DEPTH_THROTTLE: '99999',
+  MC_WORKLOAD_QUEUE_DEPTH_SHED: '99999',
   PATH: `${mockBinDir}:${process.env.PATH || ''}`,
   E2E_GATEWAY_EXPECTED: mode === 'gateway' ? '1' : '0',
 }
@@ -97,8 +105,33 @@ if (mode === 'gateway') {
 }
 
 const standaloneServerPath = path.join(repoRoot, '.next', 'standalone', 'server.js')
+
+// WHY: standalone server.js does process.chdir(__dirname) → cwd becomes .next/standalone/.
+// Next.js then resolves distDir="./.next" to .next/standalone/.next/, which has no static/
+// subdirectory. Without this copy, the browser gets 404s on all JS chunks and React never
+// hydrates — every UI test fails. Mirror what start-standalone.sh does before spawning.
+if (fs.existsSync(standaloneServerPath)) {
+  const standaloneNextDir = path.join(repoRoot, '.next', 'standalone', '.next')
+  const sourceStaticDir = path.join(repoRoot, '.next', 'static')
+  const standaloneStaticDir = path.join(standaloneNextDir, 'static')
+  const sourcePublicDir = path.join(repoRoot, 'public')
+  const standalonePublicDir = path.join(repoRoot, '.next', 'standalone', 'public')
+
+  fs.mkdirSync(standaloneNextDir, { recursive: true })
+
+  if (fs.existsSync(sourceStaticDir)) {
+    fs.rmSync(standaloneStaticDir, { recursive: true, force: true })
+    fs.cpSync(sourceStaticDir, standaloneStaticDir, { recursive: true })
+  }
+
+  if (fs.existsSync(sourcePublicDir)) {
+    fs.rmSync(standalonePublicDir, { recursive: true, force: true })
+    fs.cpSync(sourcePublicDir, standalonePublicDir, { recursive: true })
+  }
+}
+
 app = fs.existsSync(standaloneServerPath)
-  ? spawn('node', [standaloneServerPath], {
+  ? spawn(process.execPath, [standaloneServerPath], {
       cwd: repoRoot,
       env: {
         ...baseEnv,

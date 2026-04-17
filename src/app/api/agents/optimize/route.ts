@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { readLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import {
   analyzeTokenEfficiency,
@@ -9,13 +8,7 @@ import {
   generateRecommendations,
 } from '@/lib/agent-optimizer'
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = readLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (request, auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const agent = searchParams.get('agent')
@@ -41,19 +34,16 @@ export async function GET(request: NextRequest) {
       ? Math.round((fleetTokens.filter(t => t >= agentTokensPerTask).length / fleetTokens.length) * 100)
       : 50
 
-    // Fleet average cost
     const fleetAvgCost = fleet.length > 0
       ? fleet.reduce((sum, f) => sum + f.costPerTask, 0) / fleet.length
       : 0
 
-    // Tool analysis
     const mostUsed = toolPatterns.topTools.slice(0, 5)
     const leastEffective = toolPatterns.topTools
       .filter(t => t.successRate < 80)
       .sort((a, b) => a.successRate - b.successRate)
       .slice(0, 5)
 
-    // Performance from fleet benchmarks
     const agentBenchmark = fleet.find(f => f.agentName === agent)
 
     return NextResponse.json({
@@ -99,4 +89,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/agents/optimize error')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

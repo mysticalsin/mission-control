@@ -4,7 +4,23 @@ import { createSession } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { verifyGoogleIdToken } from '@/lib/google-auth'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
-import { loginLimiter } from '@/lib/rate-limit'
+import { loginLimiter, extractClientIp } from '@/lib/rate-limit'
+
+interface GoogleUserRow {
+  id: number
+  username: string
+  display_name: string | null
+  role: string
+  provider: string | null
+  email: string | null
+  avatar_url: string | null
+  is_approved: number
+  created_at: number
+  updated_at: number
+  last_login_at: number | null
+  workspace_id: number
+  tenant_id: number
+}
 
 function upsertAccessRequest(input: {
   email: string
@@ -49,12 +65,15 @@ export async function POST(request: NextRequest) {
       WHERE (provider = 'google' AND provider_user_id = ?) OR lower(email) = ?
       ORDER BY id ASC
       LIMIT 1
-    `).get(sub, email) as any
+    `).get(sub, email) as GoogleUserRow | undefined
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     const userAgent = request.headers.get('user-agent') || undefined
 
-    if (!row || Number(row.is_approved ?? 1) !== 1) {
+    // ADR: Require is_approved = 1 explicitly — don't coalesce NULL to approved.
+    // Why: If is_approved is NULL (e.g. after a schema migration), coalescing to 1
+    // would silently grant access to unapproved users.
+    if (!row || Number(row.is_approved) !== 1) {
       upsertAccessRequest({
         email,
         providerUserId: sub,
@@ -108,7 +127,9 @@ export async function POST(request: NextRequest) {
     })
 
     return response
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Google login failed' }, { status: 400 })
+  } catch (error: unknown) {
+    const { logger } = await import('@/lib/logger')
+    logger.error({ err: error }, 'google_auth_error')
+    return NextResponse.json({ error: 'Google sign-in failed' }, { status: 400 })
   }
 }

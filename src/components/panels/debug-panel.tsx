@@ -1,12 +1,21 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 
 type Tab = 'status' | 'health' | 'models' | 'apicall'
 
 export function DebugPanel() {
+  const t = useTranslations('debug')
   const [activeTab, setActiveTab] = useState<Tab>('status')
+
+  const tabLabels: Record<Tab, string> = {
+    status: t('tabStatus'),
+    health: t('tabHealth'),
+    models: t('tabModels'),
+    apicall: t('tabApiCall'),
+  }
 
   return (
     <div className="m-4">
@@ -18,7 +27,7 @@ export function DebugPanel() {
             size="sm"
             onClick={() => setActiveTab(tab)}
           >
-            {tab === 'apicall' ? 'API Call' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tabLabels[tab]}
           </Button>
         ))}
       </div>
@@ -36,13 +45,14 @@ export function DebugPanel() {
 // ---------------------------------------------------------------------------
 
 function StatusTab() {
-  const [data, setData] = useState<any>(null)
+  const t = useTranslations('debug')
+  const [data, setData] = useState<unknown>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchStatus = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/debug?action=status')
+      const res = await fetch('/api/debug?action=status', { signal: AbortSignal.timeout(8000) })
       setData(await res.json())
     } catch {
       setData({ error: 'Failed to fetch status' })
@@ -53,14 +63,15 @@ function StatusTab() {
 
   useEffect(() => { fetchStatus() }, [fetchStatus])
 
-  const reachable = data && !data.gatewayReachable === false && data.gatewayReachable !== false
+  const dataObj = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : null
+  const reachable = dataObj && !dataObj['gatewayReachable'] === false && dataObj['gatewayReachable'] !== false
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-3">
-        <span className="text-sm text-muted-foreground">Gateway:</span>
+        <span className="text-sm text-muted-foreground">{t('gateway')}:</span>
         {loading ? (
-          <span className="text-xs text-muted-foreground">checking...</span>
+          <span className="text-xs text-muted-foreground">{t('checking')}</span>
         ) : (
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -69,15 +80,15 @@ function StatusTab() {
                 : 'bg-red-500/20 text-red-400 border border-red-500/30'
             }`}
           >
-            {reachable ? 'Reachable' : 'Unreachable'}
+            {reachable ? t('reachable') : t('unreachable')}
           </span>
         )}
         <Button variant="ghost" size="xs" onClick={fetchStatus} disabled={loading}>
-          Refresh
+          {t('refresh')}
         </Button>
       </div>
       <pre className="bg-secondary rounded-lg p-4 text-xs font-mono overflow-auto max-h-96 text-foreground">
-        {loading ? 'Loading...' : JSON.stringify(data, null, 2)}
+        {loading ? t('loading') : JSON.stringify(data, null, 2)}
       </pre>
     </div>
   )
@@ -88,7 +99,8 @@ function StatusTab() {
 // ---------------------------------------------------------------------------
 
 function HealthTab() {
-  const [data, setData] = useState<any>(null)
+  const t = useTranslations('debug')
+  const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
   const [heartbeat, setHeartbeat] = useState<{ ok: boolean; latencyMs: number; timestamp: number } | null>(null)
   const [hbLoading, setHbLoading] = useState(false)
@@ -96,8 +108,8 @@ function HealthTab() {
   const fetchHealth = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/debug?action=health')
-      setData(await res.json())
+      const res = await fetch('/api/debug?action=health', { signal: AbortSignal.timeout(8000) })
+      setData(await res.json() as Record<string, unknown>)
     } catch {
       setData({ healthy: false, error: 'Failed to fetch' })
     } finally {
@@ -110,8 +122,8 @@ function HealthTab() {
   const pingHeartbeat = async () => {
     setHbLoading(true)
     try {
-      const res = await fetch('/api/debug?action=heartbeat')
-      setHeartbeat(await res.json())
+      const res = await fetch('/api/debug?action=heartbeat', { signal: AbortSignal.timeout(8000) })
+      setHeartbeat(await res.json() as { ok: boolean; latencyMs: number; timestamp: number })
     } catch {
       setHeartbeat({ ok: false, latencyMs: -1, timestamp: Date.now() })
     } finally {
@@ -119,14 +131,14 @@ function HealthTab() {
     }
   }
 
-  const healthy = data?.healthy === true || (data && !data.error && data.healthy !== false)
+  const healthy = data?.['healthy'] === true || (data && !data['error'] && data['healthy'] !== false)
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-3">
-        <span className="text-sm text-muted-foreground">Health:</span>
+        <span className="text-sm text-muted-foreground">{t('health')}:</span>
         {loading ? (
-          <span className="text-xs text-muted-foreground">checking...</span>
+          <span className="text-xs text-muted-foreground">{t('checking')}</span>
         ) : (
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -135,18 +147,18 @@ function HealthTab() {
                 : 'bg-red-500/20 text-red-400 border border-red-500/30'
             }`}
           >
-            {healthy ? 'Healthy' : 'Unhealthy'}
+            {healthy ? t('healthy') : t('unhealthy')}
           </span>
         )}
         <Button variant="ghost" size="xs" onClick={fetchHealth} disabled={loading}>
-          Refresh
+          {t('refresh')}
         </Button>
         <Button variant="outline" size="xs" onClick={pingHeartbeat} disabled={hbLoading}>
-          {hbLoading ? 'Pinging...' : 'Heartbeat'}
+          {hbLoading ? t('pinging') : t('heartbeat')}
         </Button>
         {heartbeat && (
           <span className="text-xs text-muted-foreground">
-            {heartbeat.ok ? `OK` : 'Failed'} - {heartbeat.latencyMs}ms
+            {heartbeat.ok ? t('ok') : t('failed')} - {heartbeat.latencyMs}ms
           </span>
         )}
       </div>
@@ -180,17 +192,18 @@ interface ModelEntry {
   id?: string
   provider?: string
   context_length?: number
-  [key: string]: any
+  [key: string]: unknown
 }
 
 function ModelsTab() {
-  const [data, setData] = useState<any>(null)
+  const t = useTranslations('debug')
+  const [data, setData] = useState<unknown>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchModels = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/debug?action=models')
+      const res = await fetch('/api/debug?action=models', { signal: AbortSignal.timeout(8000) })
       setData(await res.json())
     } catch {
       setData({ models: [] })
@@ -201,29 +214,30 @@ function ModelsTab() {
 
   useEffect(() => { fetchModels() }, [fetchModels])
 
-  const models: ModelEntry[] = Array.isArray(data?.models) ? data.models : (Array.isArray(data?.data) ? data.data : [])
+  const dataRec = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : null
+  const models: ModelEntry[] = Array.isArray(dataRec?.['models']) ? dataRec!['models'] as ModelEntry[] : (Array.isArray(dataRec?.['data']) ? dataRec!['data'] as ModelEntry[] : [])
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-3">
-        <span className="text-sm text-muted-foreground">Models</span>
+        <span className="text-sm text-muted-foreground">{t('models')}</span>
         <Button variant="ghost" size="xs" onClick={fetchModels} disabled={loading}>
-          Refresh
+          {t('refresh')}
         </Button>
       </div>
 
       {loading ? (
-        <p className="text-xs text-muted-foreground">Loading...</p>
+        <p className="text-xs text-muted-foreground">{t('loading')}</p>
       ) : models.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No models reported by gateway</p>
+        <p className="text-sm text-muted-foreground">{t('noModels')}</p>
       ) : (
         <div className="bg-secondary rounded-lg overflow-auto max-h-96">
           <table className="w-full text-xs text-left">
             <thead>
               <tr className="border-b border-border">
-                <th className="py-2 px-3 font-medium text-muted-foreground">Name</th>
-                <th className="py-2 px-3 font-medium text-muted-foreground">Provider</th>
-                <th className="py-2 px-3 font-medium text-muted-foreground">Context Length</th>
+                <th className="py-2 px-3 font-medium text-muted-foreground">{t('colName')}</th>
+                <th className="py-2 px-3 font-medium text-muted-foreground">{t('colProvider')}</th>
+                <th className="py-2 px-3 font-medium text-muted-foreground">{t('colContextLength')}</th>
               </tr>
             </thead>
             <tbody>
@@ -246,18 +260,27 @@ function ModelsTab() {
 // API Call Tab
 // ---------------------------------------------------------------------------
 
+interface ApiCallResponse {
+  status?: number
+  statusText?: string
+  contentType?: string
+  body?: unknown
+  error?: string
+}
+
 function ApiCallTab() {
+  const t = useTranslations('debug')
   const [method, setMethod] = useState<'GET' | 'POST'>('GET')
   const [path, setPath] = useState('/api/')
   const [body, setBody] = useState('')
-  const [response, setResponse] = useState<any>(null)
+  const [response, setResponse] = useState<ApiCallResponse | null>(null)
   const [loading, setLoading] = useState(false)
 
   const send = async () => {
     setLoading(true)
     setResponse(null)
     try {
-      let parsedBody: any = undefined
+      let parsedBody: unknown = undefined
       if (method === 'POST' && body.trim()) {
         try {
           parsedBody = JSON.parse(body)
@@ -272,8 +295,9 @@ function ApiCallTab() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ method, path, body: parsedBody }),
+        signal: AbortSignal.timeout(8000),
       })
-      setResponse(await res.json())
+      setResponse(await res.json() as ApiCallResponse)
     } catch {
       setResponse({ error: 'Request failed' })
     } finally {
@@ -285,7 +309,7 @@ function ApiCallTab() {
     <div>
       <div className="flex items-end gap-2 mb-4">
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">Method</label>
+          <label className="block text-xs text-muted-foreground mb-1">{t('method')}</label>
           <select
             value={method}
             onChange={(e) => setMethod(e.target.value as 'GET' | 'POST')}
@@ -297,7 +321,7 @@ function ApiCallTab() {
         </div>
 
         <div className="flex-1">
-          <label className="block text-xs text-muted-foreground mb-1">Path</label>
+          <label className="block text-xs text-muted-foreground mb-1">{t('path')}</label>
           <input
             type="text"
             value={path}
@@ -308,13 +332,13 @@ function ApiCallTab() {
         </div>
 
         <Button variant="default" size="sm" onClick={send} disabled={loading}>
-          {loading ? 'Sending...' : 'Send'}
+          {loading ? t('sending') : t('send')}
         </Button>
       </div>
 
       {method === 'POST' && (
         <div className="mb-4">
-          <label className="block text-xs text-muted-foreground mb-1">Body (JSON)</label>
+          <label className="block text-xs text-muted-foreground mb-1">{t('bodyJson')}</label>
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -329,7 +353,7 @@ function ApiCallTab() {
         <div>
           {response.status && (
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs text-muted-foreground">Status:</span>
+              <span className="text-xs text-muted-foreground">{t('statusLabel')}:</span>
               <span
                 className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                   response.status >= 200 && response.status < 300

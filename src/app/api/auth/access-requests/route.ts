@@ -1,9 +1,56 @@
 import { randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { createUser, getUserFromRequest , requireRole } from '@/lib/auth'
+import { createUser, getUserFromRequest } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { validateBody, accessRequestActionSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
+
+interface AccessRequestRow {
+  id: number
+  provider: string
+  email: string
+  provider_user_id: string | null
+  display_name: string | null
+  avatar_url: string | null
+  status: string
+  requested_at: number
+  last_attempt_at: number | null
+  attempt_count: number
+  reviewed_by: string | null
+  reviewed_at: number | null
+  review_note: string | null
+  approved_user_id: number | null
+}
+
+interface UserRow {
+  id: number
+  username: string
+  display_name: string | null
+  password_hash: string
+  role: string
+  created_at: number
+  updated_at: number
+  last_login_at: number | null
+  workspace_id: number
+  provider: string | null
+  provider_user_id: string | null
+  email: string | null
+  avatar_url: string | null
+  is_approved: number
+  approved_by: string | null
+  approved_at: number | null
+}
+
+interface ApprovedUserRow {
+  id: number
+  username: string
+  display_name: string | null
+  role: string
+  provider: string | null
+  email: string | null
+  avatar_url: string | null
+  is_approved: number
+}
 
 function makeUsernameFromEmail(email: string): string {
   const base = email.split('@')[0].replace(/[^a-z0-9._-]/gi, '').toLowerCase() || 'user'
@@ -21,10 +68,7 @@ function ensureUniqueUsername(base: string): string {
   return candidate
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const user = getUserFromRequest(request)
   if (!user || user.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
@@ -52,20 +96,17 @@ export async function GET(request: NextRequest) {
 
   const status = String(request.nextUrl.searchParams.get('status') || 'all')
   const rows = status === 'all'
-    ? db.prepare("SELECT * FROM access_requests ORDER BY status = 'pending' DESC, last_attempt_at DESC, id DESC").all()
-    : db.prepare('SELECT * FROM access_requests WHERE status = ? ORDER BY last_attempt_at DESC, id DESC').all(status)
+    ? db.prepare("SELECT id, provider, email, provider_user_id, display_name, avatar_url, status, requested_at, last_attempt_at, attempt_count, reviewed_by, reviewed_at, review_note, approved_user_id FROM access_requests ORDER BY status = 'pending' DESC, last_attempt_at DESC, id DESC").all()
+    : db.prepare('SELECT id, provider, email, provider_user_id, display_name, avatar_url, status, requested_at, last_attempt_at, attempt_count, reviewed_by, reviewed_at, review_note, approved_user_id FROM access_requests WHERE status = ? ORDER BY last_attempt_at DESC, id DESC').all(status)
 
   return NextResponse.json({ requests: rows })
-}
+})
 
-export async function POST(request: NextRequest) {
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const admin = getUserFromRequest(request)
   if (!admin || admin.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
 
   const result = await validateBody(request, accessRequestActionSchema)
   if ('error' in result) return result.error
@@ -73,7 +114,7 @@ export async function POST(request: NextRequest) {
   const db = getDatabase()
   const { request_id: requestId, action, role, note } = result.data
 
-  const reqRow = db.prepare('SELECT * FROM access_requests WHERE id = ?').get(requestId) as any
+  const reqRow = db.prepare('SELECT id, provider, email, provider_user_id, display_name, avatar_url, status, requested_at, last_attempt_at, attempt_count, reviewed_by, reviewed_at, review_note, approved_user_id FROM access_requests WHERE id = ?').get(requestId) as AccessRequestRow | undefined
   if (!reqRow) return NextResponse.json({ error: 'Request not found' }, { status: 404 })
 
   if (action === 'reject') {
@@ -99,7 +140,7 @@ export async function POST(request: NextRequest) {
   const avatarUrl = reqRow.avatar_url ? String(reqRow.avatar_url) : null
 
   const user = db.transaction(() => {
-    const existing = db.prepare('SELECT * FROM users WHERE lower(email) = ? OR (provider = ? AND provider_user_id = ?) ORDER BY id ASC LIMIT 1').get(email, 'google', providerUserId || '') as any
+    const existing = db.prepare('SELECT id, username, display_name, password_hash, role, created_at, updated_at, last_login_at, workspace_id, provider, provider_user_id, email, avatar_url, is_approved, approved_by, approved_at FROM users WHERE lower(email) = ? OR (provider = ? AND provider_user_id = ?) ORDER BY id ASC LIMIT 1').get(email, 'google', providerUserId || '') as UserRow | undefined
 
     let userId: number
     if (existing) {
@@ -130,8 +171,8 @@ export async function POST(request: NextRequest) {
       WHERE id = ?
     `).run(admin.username, note, userId, requestId)
 
-    return db.prepare('SELECT id, username, display_name, role, provider, email, avatar_url, is_approved FROM users WHERE id = ?').get(userId)
-  })() as any
+    return db.prepare('SELECT id, username, display_name, role, provider, email, avatar_url, is_approved FROM users WHERE id = ?').get(userId) as ApprovedUserRow | undefined
+  })()
 
   logAuditEvent({
     action: 'access_request_approved',
@@ -141,4 +182,4 @@ export async function POST(request: NextRequest) {
   })
 
   return NextResponse.json({ ok: true, user })
-}
+})

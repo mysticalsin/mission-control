@@ -28,25 +28,15 @@ export function formatAge(ageStr: string): string {
 }
 
 export function parseTokenUsage(tokens: string): { used: number; total: number; percentage: number } {
-  // Parse token strings like "28k/35k (80%)"
-  const match = tokens.match(/(\d+)k?\/(\d+)k?\s*\((\d+)%\)/)
+  // Parse token strings like "28k/35k (80%)" or "28/35 (80%)"
+  const match = tokens.match(/(\d+(?:\.\d+)?)\s*(k)?\/(\d+(?:\.\d+)?)\s*(k)?\s*\((\d+)%\)/i)
   if (!match) return { used: 0, total: 0, percentage: 0 }
-  
-  const used = parseInt(match[1]) * (match[1].includes('k') ? 1000 : 1)
-  const total = parseInt(match[2]) * (match[2].includes('k') ? 1000 : 1)
-  const percentage = parseInt(match[3])
-  
-  return { used, total, percentage }
-}
 
-export function getStatusColor(status: AgentStatus['status']): string {
-  switch (status) {
-    case 'active': return 'text-green-500'
-    case 'idle': return 'text-yellow-500'
-    case 'error': return 'text-red-500'
-    case 'offline': return 'text-gray-500'
-    default: return 'text-gray-500'
-  }
+  const used = parseFloat(match[1]) * (match[2] ? 1000 : 1)
+  const total = parseFloat(match[3]) * (match[4] ? 1000 : 1)
+  const percentage = parseInt(match[5])
+
+  return { used, total, percentage }
 }
 
 export function getStatusBadgeColor(status: AgentStatus['status']): string {
@@ -62,7 +52,7 @@ export function getStatusBadgeColor(status: AgentStatus['status']): string {
 /** Normalize model field — OpenClaw 2026.3.x may send {primary: "model-name"} instead of a string */
 export function normalizeModel(model: unknown): string {
   if (typeof model === 'string') return model
-  if (model && typeof model === 'object' && 'primary' in model) return String((model as any).primary)
+  if (model && typeof model === 'object' && 'primary' in model) return String((model as { primary: unknown }).primary)
   return ''
 }
 

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
-import { heavyLimiter } from '@/lib/rate-limit'
 import { countStaleGatewaySessions, pruneGatewaySessionsOlderThan } from '@/lib/sessions'
 
 interface CleanupResult {
@@ -15,10 +15,7 @@ interface CleanupResult {
 /**
  * GET /api/cleanup - Show retention policy and what would be cleaned
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, auth) => {
   const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const now = Math.floor(Date.now() / 1000)
@@ -34,8 +31,8 @@ export async function GET(request: NextRequest) {
     const cutoff = now - days * 86400
     try {
       const wsClause = scoped ? ' AND workspace_id = ?' : ''
-      const params: any[] = scoped ? [cutoff, workspaceId] : [cutoff]
-      const row = db.prepare(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`).get(...params) as any
+      const params: SqlParam[] = scoped ? [cutoff, workspaceId] : [cutoff]
+      const row = db.prepare(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`).get(...params) as { c: number }
       preview.push({
         table: label,
         retention_days: days,
@@ -52,7 +49,7 @@ export async function GET(request: NextRequest) {
     const { readFile } = require('fs/promises')
     const data = JSON.parse(await readFile(config.tokensPath, 'utf-8'))
     const cutoffMs = Date.now() - ret.tokenUsage * 86400000
-    const stale = data.filter((r: any) => r.timestamp < cutoffMs).length
+    const stale = data.filter((r: { timestamp?: number }) => (r.timestamp ?? 0) < cutoffMs).length
     preview.push({
       table: 'Token Usage (file)',
       retention_days: ret.tokenUsage,
@@ -75,19 +72,13 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ retention: config.retention, preview })
-}
+})
 
 /**
  * POST /api/cleanup - Run cleanup (admin only)
  * Body: { dry_run?: boolean }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = heavyLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   const body = await request.json().catch(() => ({}))
   const dryRun = body.dry_run === true
 
@@ -101,11 +92,11 @@ export async function POST(request: NextRequest) {
     if (days <= 0) continue
     const cutoff = now - days * 86400
     const wsClause = scoped ? ' AND workspace_id = ?' : ''
-    const params: any[] = scoped ? [cutoff, workspaceId] : [cutoff]
+    const params: SqlParam[] = scoped ? [cutoff, workspaceId] : [cutoff]
 
     try {
       if (dryRun) {
-        const row = db.prepare(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`).get(...params) as any
+        const row = db.prepare(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`).get(...params) as { c: number }
         results.push({
           table: label,
           deleted: row.c,
@@ -136,7 +127,7 @@ export async function POST(request: NextRequest) {
       const raw = await readFile(config.tokensPath, 'utf-8')
       const data = JSON.parse(raw)
       const cutoffMs = Date.now() - ret.tokenUsage * 86400000
-      const kept = data.filter((r: any) => r.timestamp >= cutoffMs)
+      const kept = data.filter((r: { timestamp?: number }) => (r.timestamp ?? 0) >= cutoffMs)
       const removed = data.length - kept.length
 
       if (!dryRun && removed > 0) {
@@ -184,7 +175,7 @@ export async function POST(request: NextRequest) {
     total_deleted: totalDeleted,
     results,
   })
-}
+})
 
 function getRetentionTargets() {
   const ret = config.retention

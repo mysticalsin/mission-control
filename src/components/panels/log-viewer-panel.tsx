@@ -1,68 +1,45 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { useMissionControl } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 import { createClientLogger } from '@/lib/client-logger'
+import { downloadText } from '@/lib/download'
+import { type LogEntry } from '@/store/slices/log-slice'
+import { type LogFilters } from './log-viewer/types'
+import { LogFiltersBar } from './log-viewer/log-filters-bar'
+import { LogEntryRow } from './log-viewer/log-entry-row'
+import { LogHeader } from './log-viewer/log-header'
 
 const log = createClientLogger('LogViewer')
 
 const MAX_LOG_BUFFER = 1000
 
-interface LogFilters {
-  level?: string
-  source?: string
-  search?: string
-  session?: string
-}
-
-function downloadFile(content: string, filename: string, mime: string) {
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-export function LogViewerPanel() {
+export function LogViewerPanel(): React.JSX.Element {
   const { logs, logFilters, setLogFilters, clearLogs, addLog } = useMissionControl()
   const [isAutoScroll, setIsAutoScroll] = useState(true)
   const [availableSources, setAvailableSources] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [logFilePath, setLogFilePath] = useState<string | null>(null)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef<boolean>(true)
   const logsRef = useRef(logs)
   const logFiltersRef = useRef(logFilters)
+  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  const isBufferFull = logs.length >= MAX_LOG_BUFFER
+  useEffect(() => () => { if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current) }, [])
 
-  // Update ref when autoScroll state changes
-  useEffect(() => {
-    autoScrollRef.current = isAutoScroll
-  }, [isAutoScroll])
+  useEffect(() => { autoScrollRef.current = isAutoScroll }, [isAutoScroll])
+  useEffect(() => { logsRef.current = logs }, [logs])
+  useEffect(() => { logFiltersRef.current = logFilters }, [logFilters])
 
-  // Keep refs in sync so callbacks don't need `logs` / `logFilters` deps.
-  useEffect(() => {
-    logsRef.current = logs
-  }, [logs])
-
-  useEffect(() => {
-    logFiltersRef.current = logFilters
-  }, [logFilters])
-
-  const loadLogs = useCallback(async (tail = false) => {
-    log.debug(`Loading logs (tail=${tail})`)
-    setIsLoading(!tail) // Only show loading for initial load, not for tailing
-
+  const loadLogs = useCallback(async (tail = false): Promise<void> => {
+    setIsLoading(!tail)
     try {
       const currentFilters = logFiltersRef.current
       const currentLogs = logsRef.current
-
       const params = new URLSearchParams({
         action: tail ? 'tail' : 'recent',
         limit: '200',
@@ -70,124 +47,75 @@ export function LogViewerPanel() {
         ...(currentFilters.source && { source: currentFilters.source }),
         ...(currentFilters.search && { search: currentFilters.search }),
         ...(currentFilters.session && { session: currentFilters.session }),
-        ...(tail && currentLogs.length > 0 && { since: currentLogs[0]?.timestamp.toString() })
+        ...(tail && currentLogs.length > 0 && { since: currentLogs[0]?.timestamp.toString() }),
       })
-
-      log.debug(`Fetching /api/logs?${params}`)
-      const response = await fetch(`/api/logs?${params}`)
+      const response = await fetch(`/api/logs?${params}`, { signal: AbortSignal.timeout(8000) })
       const data = await response.json()
-
-      log.debug(`Received ${data.logs?.length || 0} logs from API`)
-
       if (data.logs && data.logs.length > 0) {
         if (tail) {
-          // Add new logs for tail mode - prepend to existing logs
-          let newLogsAdded = 0
-          const existingIds = new Set((currentLogs || []).map((l: any) => l?.id).filter(Boolean))
-          data.logs.reverse().forEach((entry: any) => {
+          const existingIds = new Set((currentLogs || []).map((l: LogEntry) => l?.id).filter(Boolean))
+          data.logs.reverse().forEach((entry: LogEntry) => {
             if (existingIds.has(entry?.id)) return
             addLog(entry)
-            newLogsAdded++
           })
-          log.debug(`Added ${newLogsAdded} new logs (tail mode)`)
         } else {
-          // Replace logs for initial load or refresh
-          log.debug(`Clearing existing logs and loading ${data.logs.length} logs`)
-          clearLogs() // Clear existing logs
-          data.logs.reverse().forEach((entry: any) => {
-            addLog(entry)
-          })
-          log.debug(`Successfully added ${data.logs.length} logs to store`)
+          clearLogs()
+          data.logs.reverse().forEach((entry: LogEntry) => { addLog(entry) })
         }
-      } else {
-        log.debug('No logs received from API')
       }
-    } catch (error) {
-      log.error('Failed to load logs:', error)
+    } catch (err) {
+      log.error('Failed to load logs:', err)
+      setError('Failed to load logs. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }, [addLog, clearLogs])
 
-  const loadSources = useCallback(async () => {
+  const loadSources = useCallback(async (): Promise<void> => {
     try {
-      const response = await fetch('/api/logs?action=sources')
+      const response = await fetch('/api/logs?action=sources', { signal: AbortSignal.timeout(8000) })
       const data = await response.json()
       setAvailableSources(data.sources || [])
-    } catch (error) {
-      log.error('Failed to load log sources:', error)
+    } catch (err) {
+      log.error('Failed to load log sources:', err)
     }
   }, [])
 
-  // Try to fetch log file path from gateway status
-  const loadLogFilePath = useCallback(async () => {
+  const loadLogFilePath = useCallback(async (): Promise<void> => {
     try {
-      const response = await fetch('/api/status')
+      const response = await fetch('/api/status', { signal: AbortSignal.timeout(8000) })
       const data = await response.json()
-      const path = data?.config?.logFile || data?.logFile || null
-      setLogFilePath(path)
+      setLogFilePath(data?.config?.logFile || data?.logFile || null)
     } catch {
       // Gateway may not expose this — silently ignore
     }
   }, [])
 
-  // Load initial logs and sources
-  useEffect(() => {
-    log.debug('Initial load started')
-    loadLogs()
-    loadSources()
-    loadLogFilePath()
-  }, [loadLogs, loadSources, loadLogFilePath])
+  useEffect(() => { loadLogs(); loadSources(); loadLogFilePath() }, [loadLogs, loadSources, loadLogFilePath])
 
-  // Smart polling for log tailing (10s, visibility-aware, logs mostly come via WS)
-  const pollLogs = useCallback(() => {
-    if (autoScrollRef.current && !isLoading) {
-      loadLogs(true) // tail mode
-    }
+  const pollLogs = useCallback((): void => {
+    if (autoScrollRef.current && !isLoading) loadLogs(true)
   }, [isLoading, loadLogs])
 
   useSmartPoll(pollLogs, 30000, { pauseWhenConnected: true })
 
-  // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     if (isAutoScroll && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
     }
   }, [logs, isAutoScroll])
 
-  const handleFilterChange = (newFilters: Partial<LogFilters>) => {
+  const handleFilterChange = (newFilters: Partial<LogFilters>): void => {
     setLogFilters(newFilters)
-    // Reload logs with new filters
-    setTimeout(() => loadLogs(), 100)
+    if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current)
+    filterDebounceRef.current = setTimeout(() => loadLogs(), 100)
   }
 
-  const handleScrollToBottom = () => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
-    }
+  const handleScrollToBottom = (): void => {
+    if (logContainerRef.current) logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
   }
 
-  const getLogLevelColor = (level: string) => {
-    switch (level.toLowerCase()) {
-      case 'error': return 'text-red-400'
-      case 'warn': return 'text-yellow-400'
-      case 'info': return 'text-blue-400'
-      case 'debug': return 'text-muted-foreground'
-      default: return 'text-foreground'
-    }
-  }
-
-  const getLogLevelBg = (level: string) => {
-    switch (level.toLowerCase()) {
-      case 'error': return 'bg-red-500/10 border-red-500/20'
-      case 'warn': return 'bg-yellow-500/10 border-yellow-500/20'
-      case 'info': return 'bg-blue-500/10 border-blue-500/20'
-      case 'debug': return 'bg-gray-500/10 border-gray-500/20'
-      default: return 'bg-secondary border-border'
-    }
-  }
-
-  const filteredLogs = logs.filter(entry => {
+  const filteredLogs = logs.filter((entry: LogEntry) => {
     if (logFilters.level && entry.level !== logFilters.level) return false
     if (logFilters.source && entry.source !== logFilters.source) return false
     if (logFilters.search && !entry.message.toLowerCase().includes(logFilters.search.toLowerCase())) return false
@@ -195,212 +123,60 @@ export function LogViewerPanel() {
     return true
   })
 
-  const handleExportText = useCallback(() => {
-    const lines = filteredLogs.map(entry => {
+  const handleExportText = useCallback((): void => {
+    const lines = filteredLogs.map((entry: LogEntry) => {
       const ts = new Date(entry.timestamp).toISOString()
       return `[${ts}] [${entry.level.toUpperCase()}] [${entry.source}] ${entry.message}`
     })
-    const filename = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`
-    downloadFile(lines.join('\n'), filename, 'text/plain')
+    downloadText(lines.join('\n'), `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`, 'text/plain')
   }, [filteredLogs])
 
-  const handleExportJson = useCallback(() => {
-    const filename = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`
-    downloadFile(JSON.stringify(filteredLogs, null, 2), filename, 'application/json')
+  const handleExportJson = useCallback((): void => {
+    downloadText(JSON.stringify(filteredLogs, null, 2), `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`, 'application/json')
   }, [filteredLogs])
-
-  // Debug logging
-  log.debug(`Store has ${logs.length} logs, filtered to ${filteredLogs.length}`)
 
   return (
     <div className="flex flex-col h-full p-6 space-y-4">
-      <div className="border-b border-border pb-4">
-        <h1 className="text-3xl font-bold text-foreground">Log Viewer</h1>
-        <p className="text-muted-foreground mt-2">
-          Real-time streaming logs from ClawdBot gateway and system
-          {logFilePath && (
-            <span className="ml-3 font-mono text-xs text-muted-foreground/70">{logFilePath}</span>
-          )}
-        </p>
-      </div>
-
-      {/* Filters and Controls */}
-      <div className="bg-card border border-border rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          {/* Level Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Level
-            </label>
-            <select
-              value={logFilters.level || ''}
-              onChange={(e) => handleFilterChange({ level: e.target.value || undefined })}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">All levels</option>
-              <option value="error">Error</option>
-              <option value="warn">Warning</option>
-              <option value="info">Info</option>
-              <option value="debug">Debug</option>
-            </select>
-          </div>
-
-          {/* Source Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Source
-            </label>
-            <select
-              value={logFilters.source || ''}
-              onChange={(e) => handleFilterChange({ source: e.target.value || undefined })}
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">All sources</option>
-              {availableSources.map((source) => (
-                <option key={source} value={source}>{source}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Session Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Session
-            </label>
-            <input
-              type="text"
-              value={logFilters.session || ''}
-              onChange={(e) => handleFilterChange({ session: e.target.value || undefined })}
-              placeholder="Session ID"
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          {/* Search Filter */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Search
-            </label>
-            <input
-              type="text"
-              value={logFilters.search || ''}
-              onChange={(e) => handleFilterChange({ search: e.target.value || undefined })}
-              placeholder="Search messages..."
-              className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground placeholder-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          {/* Controls */}
-          <div className="flex items-end space-x-2">
-            <Button
-              onClick={() => setIsAutoScroll(!isAutoScroll)}
-              variant={isAutoScroll ? 'success' : 'outline'}
-            >
-              {isAutoScroll ? 'Auto' : 'Manual'}
-            </Button>
-            <Button
-              onClick={handleScrollToBottom}
-              className="bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30"
-            >
-              Bottom
-            </Button>
-          </div>
-
-          {/* Export & Clear */}
-          <div className="flex items-end space-x-2">
-            <Button
-              onClick={handleExportText}
-              disabled={filteredLogs.length === 0}
-              className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40"
-            >
-              Export .log
-            </Button>
-            <Button
-              onClick={handleExportJson}
-              disabled={filteredLogs.length === 0}
-              className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40"
-            >
-              Export JSON
-            </Button>
-            <Button
-              onClick={clearLogs}
-              variant="destructive"
-            >
-              Clear
-            </Button>
-          </div>
+      {error && (
+        <div className="mx-4 my-3 flex items-center gap-3 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          <span className="flex-1">{error}</span>
+          <button onClick={() => { setError(null); loadLogs() }} className="shrink-0 rounded px-2.5 py-1 text-xs font-medium bg-red-400 text-red-950 hover:bg-red-300">
+            Retry
+          </button>
         </div>
-      </div>
+      )}
 
-      {/* Log Stats */}
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <div className="flex items-center gap-3">
-          <span>Showing {filteredLogs.length} of {logs.length} logs</span>
-          {isBufferFull && (
-            <span className="px-2 py-0.5 rounded text-xs bg-yellow-500/15 text-yellow-400 border border-yellow-500/25">
-              Showing last {MAX_LOG_BUFFER} entries (buffer full)
-            </span>
-          )}
-        </div>
-        <div>
-          Auto-scroll: {isAutoScroll ? 'ON' : 'OFF'} •
-          Last updated: {logs.length > 0 ? new Date(logs[0]?.timestamp).toLocaleTimeString() : 'Never'}
-        </div>
-      </div>
+      <LogHeader
+        logFilePath={logFilePath}
+        totalCount={logs.length}
+        filteredCount={filteredLogs.length}
+        isBufferFull={logs.length >= MAX_LOG_BUFFER}
+        maxBuffer={MAX_LOG_BUFFER}
+        isAutoScroll={isAutoScroll}
+        lastTimestamp={logs[0]?.timestamp}
+      />
 
-      {/* Log Display */}
+      <LogFiltersBar
+        logFilters={logFilters}
+        availableSources={availableSources}
+        isAutoScroll={isAutoScroll}
+        filteredCount={filteredLogs.length}
+        onFilterChange={handleFilterChange}
+        onToggleAutoScroll={() => setIsAutoScroll(!isAutoScroll)}
+        onScrollToBottom={handleScrollToBottom}
+        onExportText={handleExportText}
+        onExportJson={handleExportJson}
+        onClearLogs={clearLogs}
+      />
+
       <div className="flex-1 bg-card border border-border rounded-lg overflow-hidden">
-        <div 
-          ref={logContainerRef}
-          className="h-full overflow-auto p-4 space-y-2 font-mono text-sm"
-        >
+        <div ref={logContainerRef} className="h-full overflow-auto p-4 space-y-2 font-mono text-sm">
           {isLoading ? (
             <Loader variant="panel" label="Loading logs" />
           ) : filteredLogs.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-muted-foreground">
-              No logs match the current filters
-            </div>
+            <div className="flex items-center justify-center h-32 text-muted-foreground">No logs</div>
           ) : (
-            filteredLogs.map((log) => (
-              <div 
-                key={log.id} 
-                className={`border-l-4 pl-4 py-2 rounded-r-md ${getLogLevelBg(log.level)}`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 text-xs">
-                      <span className="text-muted-foreground">
-                        {new Date(log.timestamp).toLocaleTimeString()}
-                      </span>
-                      <span className={`font-medium uppercase ${getLogLevelColor(log.level)}`}>
-                        {log.level}
-                      </span>
-                      <span className="text-muted-foreground">
-                        [{log.source}]
-                      </span>
-                      {log.session && (
-                        <span className="text-muted-foreground">
-                          session:{log.session}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1 text-foreground break-words">
-                      {log.message}
-                    </div>
-                    {log.data && (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                          Additional data
-                        </summary>
-                        <pre className="mt-1 text-xs text-muted-foreground overflow-auto">
-                          {JSON.stringify(log.data, null, 2)}
-                        </pre>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
+            filteredLogs.map((entry: LogEntry) => <LogEntryRow key={entry.id} entry={entry} />)
           )}
         </div>
       </div>

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { parseJsonlTranscript, readSessionJsonl, type TranscriptMessage, type MessageContentPart } from '@/lib/transcript-parser'
@@ -21,10 +21,7 @@ export interface AggregateEvent {
  * Fan out to all active session JSONL files on disk, parse, merge into
  * a single chronological event stream for the agent-feed panel.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '100', 10), 1), 500)
   const since = parseInt(searchParams.get('since') || '0', 10) || 0
@@ -65,7 +62,7 @@ export async function GET(request: NextRequest) {
     events: trimmed,
     sessionCount: sessions.length,
   })
-}
+})
 
 function partToEvent(
   part: MessageContentPart,

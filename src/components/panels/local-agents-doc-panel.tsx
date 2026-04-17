@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { getErrorMessage, toError } from '@/lib/types/sql'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 
 interface AgentsDocResponse {
@@ -11,11 +13,16 @@ interface AgentsDocResponse {
 }
 
 export function LocalAgentsDocPanel() {
+  const t = useTranslations('localAgentsDoc')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AgentsDocResponse | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  // Clear pending timer on unmount to prevent setState on unmounted component
+  useEffect(() => () => { if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current) }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -23,12 +30,12 @@ export function LocalAgentsDocPanel() {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch('/api/local/agents-doc', { cache: 'no-store' })
+        const res = await fetch('/api/local/agents-doc', { cache: 'no-store', signal: AbortSignal.timeout(8000) })
         const body = await res.json()
         if (!res.ok) throw new Error(body?.error || 'Failed to load AGENTS.md')
         if (!cancelled) setData(body as AgentsDocResponse)
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Failed to load AGENTS.md')
+      } catch (err: unknown) {
+        if (!cancelled) setError(getErrorMessage(err) || 'Failed to load AGENTS.md')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -56,7 +63,8 @@ export function LocalAgentsDocPanel() {
     try {
       await navigator.clipboard.writeText(data.path)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1200)
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 1200)
     } catch {
       // ignore clipboard failures
     }
@@ -66,9 +74,9 @@ export function LocalAgentsDocPanel() {
     <div className="mt-4 mx-4 rounded-lg border border-border bg-card overflow-hidden">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-foreground">Local AGENTS.md</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t('title')}</h3>
           <p className="text-2xs text-muted-foreground truncate">
-            {data?.path || 'No local AGENTS.md found yet'}
+            {data?.path || t('noPathFound')}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -78,7 +86,7 @@ export function LocalAgentsDocPanel() {
             onClick={openInEditor}
             disabled={!data?.path}
           >
-            Open in VS Code
+            {t('openInVsCode')}
           </Button>
           <Button
             variant="outline"
@@ -86,7 +94,7 @@ export function LocalAgentsDocPanel() {
             onClick={copyPath}
             disabled={!data?.path}
           >
-            {copied ? 'Copied' : 'Copy Path'}
+            {copied ? t('copied') : t('copyPath')}
           </Button>
           <Button
             variant="outline"
@@ -94,13 +102,13 @@ export function LocalAgentsDocPanel() {
             onClick={() => setExpanded((v) => !v)}
             disabled={!data?.content}
           >
-            {expanded ? 'Collapse' : 'Expand'}
+            {expanded ? t('collapse') : t('expand')}
           </Button>
         </div>
       </div>
 
       {loading ? (
-        <div className="px-4 py-4 text-xs text-muted-foreground">Loading local AGENTS.md...</div>
+        <div className="px-4 py-4 text-xs text-muted-foreground">{t('loading')}</div>
       ) : error ? (
         <div className="px-4 py-4 text-xs text-destructive">{error}</div>
       ) : data?.found && data.content ? (
@@ -109,10 +117,10 @@ export function LocalAgentsDocPanel() {
         </pre>
       ) : (
         <div className="px-4 py-4 text-xs text-muted-foreground space-y-1">
-          <p>No local AGENTS.md detected.</p>
+          <p>{t('notDetected')}</p>
           {data?.candidates && data.candidates.length > 0 && (
             <p className="text-2xs">
-              Checked: {data.candidates.join(', ')}
+              {t('checked', { paths: data.candidates.join(', ') })}
             </p>
           )}
         </div>

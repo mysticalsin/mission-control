@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { getMentionTargets } from '@/lib/mentions'
 import { logger } from '@/lib/logger'
@@ -8,10 +8,7 @@ import { logger } from '@/lib/logger'
  * GET /api/mentions - autocomplete source for @mentions (users + agents)
  * Query: q?, limit?, type?
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -47,4 +44,4 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/mentions error')
     return NextResponse.json({ error: 'Failed to fetch mention targets' }, { status: 500 })
   }
-}
+})

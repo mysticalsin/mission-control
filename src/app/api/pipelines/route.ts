@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { validateBody, createPipelineSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 export interface PipelineStep {
@@ -26,15 +26,13 @@ export interface Pipeline {
 /**
  * GET /api/pipelines - List all pipelines with enriched step data
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (_request, auth) => {
 
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const pipelines = db.prepare(
-      'SELECT * FROM workflow_pipelines WHERE workspace_id = ? ORDER BY use_count DESC, updated_at DESC'
+      'SELECT id, name, description, steps, created_by, created_at, updated_at, use_count, last_used_at, workspace_id FROM workflow_pipelines WHERE workspace_id = ? ORDER BY use_count DESC, updated_at DESC'
     ).all(workspaceId) as Pipeline[]
 
     // Enrich steps with template names
@@ -65,18 +63,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/pipelines error')
     return NextResponse.json({ error: 'Failed to fetch pipelines' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/pipelines - Create a pipeline
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const result = await validateBody(request, createPipelineSchema)
     if ('error' in result) return result.error
@@ -115,21 +107,19 @@ export async function POST(request: NextRequest) {
     )
 
     const pipeline = db
-      .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, name, description, steps, created_by, created_at, updated_at, use_count, last_used_at, workspace_id FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
       .get(insertResult.lastInsertRowid, workspaceId) as Pipeline
     return NextResponse.json({ pipeline: { ...pipeline, steps: JSON.parse(pipeline.steps) } }, { status: 201 })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/pipelines error')
     return NextResponse.json({ error: 'Failed to create pipeline' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/pipelines - Update a pipeline
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase()
@@ -140,12 +130,12 @@ export async function PUT(request: NextRequest) {
     if (!id) return NextResponse.json({ error: 'Pipeline ID required' }, { status: 400 })
 
     const existing = db
-      .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, name, description, steps, created_by, created_at, updated_at, use_count, last_used_at, workspace_id FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
       .get(id, workspaceId) as Pipeline
     if (!existing) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
     const fields: string[] = []
-    const params: any[] = []
+    const params: SqlParam[] = []
 
     if (updates.name !== undefined) { fields.push('name = ?'); params.push(updates.name) }
     if (updates.description !== undefined) { fields.push('description = ?'); params.push(updates.description) }
@@ -167,28 +157,28 @@ export async function PUT(request: NextRequest) {
     db.prepare(`UPDATE workflow_pipelines SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...params)
 
     const updated = db
-      .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
+      .prepare('SELECT id, name, description, steps, created_by, created_at, updated_at, use_count, last_used_at, workspace_id FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
       .get(id, workspaceId) as Pipeline
     return NextResponse.json({ pipeline: { ...updated, steps: JSON.parse(updated.steps) } })
   } catch (error) {
     logger.error({ err: error }, 'PUT /api/pipelines error')
     return NextResponse.json({ error: 'Failed to update pipeline' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/pipelines - Delete a pipeline
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    let body: any
-    try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
-    const id = body.id
+    let reqBody: Record<string, unknown>
+    try { reqBody = await request.json() as Record<string, unknown> } catch {
+      return NextResponse.json({ error: 'Request body required' }, { status: 400 })
+    }
+    const id = reqBody.id ? String(reqBody.id) : null
     if (!id) return NextResponse.json({ error: 'Pipeline ID required' }, { status: 400 })
 
     db.prepare('DELETE FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').run(parseInt(id), workspaceId)
@@ -197,4 +187,4 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/pipelines error')
     return NextResponse.json({ error: 'Failed to delete pipeline' }, { status: 500 })
   }
-}
+})

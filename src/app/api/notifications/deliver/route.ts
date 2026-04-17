@@ -1,18 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { getErrorMessage } from '@/lib/types/sql'
+import { SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server';
 import { getDatabase, Notification, db_helpers } from '@/lib/db';
 import { runOpenClaw } from '@/lib/command';
-import { requireRole } from '@/lib/auth';
+import { apiGuard } from '@/lib/api-guard';
 import { logger } from '@/lib/logger';
 
 /**
  * POST /api/notifications/deliver - Notification delivery daemon endpoint
  * 
- * Polls undelivered notifications and sends them to agent sessions
- * via OpenClaw sessions_send command
+ * Polls undelivered notifications and sends them to agents
+ * via OpenClaw gateway call agent command
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       WHERE n.delivered_at IS NULL AND n.workspace_id = ?
     `;
     
-    const params: any[] = [workspaceId];
+    const params: SqlParam[] = [workspaceId];
     
     if (agent_filter) {
       query += ' AND n.recipient = ?';
@@ -56,20 +56,20 @@ export async function POST(request: NextRequest) {
     
     let deliveredCount = 0;
     let errorCount = 0;
-    const errors: any[] = [];
-    const deliveryResults: any[] = [];
+    const errors: Array<{ notification_id: number; recipient: string | null; error: string }> = [];
+    const deliveryResults: Array<Record<string, unknown>> = [];
 
     // Prepare update statement once (avoids N+1)
     const markDeliveredStmt = db.prepare('UPDATE notifications SET delivered_at = ? WHERE id = ? AND workspace_id = ?');
 
     for (const notification of undeliveredNotifications) {
       try {
-        // Skip if agent doesn't have session key
-        if (!notification.session_key) {
+        // Skip if agent is not registered in the agents table
+        if (!notification.recipient) {
           errors.push({
             notification_id: notification.id,
             recipient: notification.recipient,
-            error: 'Agent has no session key configured'
+            error: 'Notification has no recipient'
           });
           errorCount++;
           continue;
@@ -79,20 +79,26 @@ export async function POST(request: NextRequest) {
         const message = formatNotificationMessage(notification);
         
         if (!dry_run) {
-          // Send notification via OpenClaw sessions_send
+          // Send notification via OpenClaw gateway call agent
           try {
+            const invokeParams = {
+              message,
+              agentId: notification.recipient,
+              idempotencyKey: `notification-${notification.id}-${Date.now()}`,
+              deliver: false,
+            };
             const { stdout, stderr } = await runOpenClaw(
               [
                 'gateway',
-                'sessions_send',
-                '--session',
-                notification.session_key,
-                '--message',
-                message
+                'call',
+                'agent',
+                '--params',
+                JSON.stringify(invokeParams),
+                '--json'
               ],
-              { timeoutMs: 10000 }
+              { timeoutMs: 30000 }
             );
-            
+
             if (stderr && stderr.includes('error')) {
               throw new Error(`OpenClaw error: ${stderr}`);
             }
@@ -105,7 +111,6 @@ export async function POST(request: NextRequest) {
             deliveryResults.push({
               notification_id: notification.id,
               recipient: notification.recipient,
-              session_key: notification.session_key,
               delivered_at: now,
               status: 'delivered',
               stdout: stdout.substring(0, 200) // Truncate for storage
@@ -120,31 +125,29 @@ export async function POST(request: NextRequest) {
               `Notification delivered to ${notification.recipient}`,
               {
                 notification_type: notification.type,
-                session_key: notification.session_key,
                 title: notification.title
               },
               workspaceId
             );
-          } catch (cmdError: any) {
-            throw new Error(`Command failed: ${cmdError.message}`);
+          } catch (cmdError: unknown) {
+            throw new Error(`Command failed: ${cmdError instanceof Error ? cmdError.message : String(cmdError)}`);
           }
         } else {
           // Dry run - just log what would be sent
           deliveryResults.push({
             notification_id: notification.id,
             recipient: notification.recipient,
-            session_key: notification.session_key,
             status: 'dry_run',
             message: message
           });
           deliveredCount++;
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         errorCount++;
         errors.push({
           notification_id: notification.id,
           recipient: notification.recipient,
-          error: error.message
+          error: getErrorMessage(error)
         });
         
         logger.error({ err: error, notificationId: notification.id, recipient: notification.recipient }, 'Failed to deliver notification');
@@ -182,14 +185,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/notifications/deliver error');
     return NextResponse.json({ error: 'Failed to deliver notifications' }, { status: 500 });
   }
-}
+})
 
 /**
  * GET /api/notifications/deliver - Get delivery status and statistics
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
 
   try {
     const db = getDatabase();
@@ -199,7 +200,7 @@ export async function GET(request: NextRequest) {
     
     // Get delivery statistics
     let baseQuery = 'SELECT COUNT(*) as count FROM notifications WHERE workspace_id = ?';
-    let params: any[] = [workspaceId];
+    let params: SqlParam[] = [workspaceId];
     
     if (agent) {
       baseQuery += ' AND recipient = ?';
@@ -233,16 +234,14 @@ export async function GET(request: NextRequest) {
     
     // Get agents with pending notifications
     const agentsPending = db.prepare(`
-      SELECT 
+      SELECT
         n.recipient,
-        a.session_key,
         COUNT(*) as pending_count
       FROM notifications n
-      LEFT JOIN agents a ON n.recipient = a.name AND a.workspace_id = n.workspace_id
       WHERE n.delivered_at IS NULL AND n.workspace_id = ?
-      GROUP BY n.recipient, a.session_key
+      GROUP BY n.recipient
       ORDER BY pending_count DESC
-    `).all(workspaceId) as any[];
+    `).all(workspaceId) as Array<{ recipient: string; pending_count: number }>;
     
     return NextResponse.json({
       statistics: {
@@ -260,7 +259,7 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/notifications/deliver error');
     return NextResponse.json({ error: 'Failed to get delivery status' }, { status: 500 });
   }
-}
+})
 
 /**
  * Format notification for delivery to agent session

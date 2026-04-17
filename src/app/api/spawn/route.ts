@@ -1,10 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { runClawdbot } from '@/lib/command'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { readdir, readFile, stat } from 'fs/promises'
 import { join } from 'path'
-import { heavyLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { validateBody, spawnAgentSchema } from '@/lib/validation'
 import { scanForInjection } from '@/lib/injection-guard'
@@ -19,13 +18,7 @@ async function runSpawnWithCompatibility(spawnPayload: Record<string, unknown>) 
   return runClawdbot(['-c', commandArg], { timeoutMs: 10000 })
 }
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = heavyLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const result = await validateBody(request, spawnAgentSchema)
     if ('error' in result) return result.error
@@ -76,8 +69,9 @@ export async function POST(request: NextRequest) {
         const result = await runSpawnWithCompatibility(spawnPayload)
         stdout = result.stdout
         stderr = result.stderr
-      } catch (firstError: any) {
-        const rawErr = String(firstError?.stderr || firstError?.message || '').toLowerCase()
+      } catch (firstError: unknown) {
+        const firstErr = firstError as { stderr?: string; message?: string }
+        const rawErr = String(firstErr?.stderr || firstErr?.message || '').toLowerCase()
         // Only retry without tools.profile when the error specifically indicates the
         // gateway doesn't recognize the tools/profile fields. Other errors (auth,
         // network, model not found, etc.) should propagate immediately.
@@ -86,8 +80,8 @@ export async function POST(request: NextRequest) {
           (rawErr.includes('tools') || rawErr.includes('profile'))
         if (!isToolsSchemaError) throw firstError
 
-        const fallbackPayload = { ...spawnPayload }
-        delete (fallbackPayload as any).tools
+        const fallbackPayload: Omit<typeof spawnPayload, 'tools'> & { tools?: typeof spawnPayload.tools } = { ...spawnPayload }
+        delete fallbackPayload.tools
         const fallback = await runSpawnWithCompatibility(fallbackPayload)
         stdout = fallback.stdout
         stderr = fallback.stderr
@@ -122,6 +116,9 @@ export async function POST(request: NextRequest) {
         ip_address: ipAddress,
       })
 
+      // SECURITY: Do not expose raw stdout/stderr to client (CRITICAL-3 fix)
+      logger.info({ spawnId, stdout: stdout.trim(), stderr: stderr.trim() }, 'Spawn output')
+
       return NextResponse.json({
         success: true,
         spawnId,
@@ -131,21 +128,21 @@ export async function POST(request: NextRequest) {
         label,
         timeoutSeconds: timeout,
         createdAt: Date.now(),
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
         compatibility: {
           toolsProfile: getPreferredToolsProfile(),
           fallbackUsed: compatibilityFallbackUsed,
         },
       })
 
-    } catch (execError: any) {
-      logger.error({ err: execError }, 'Spawn execution error')
-      
+    } catch (execError: unknown) {
+      // SECURITY: Log raw error server-side, return generic message to client (CRITICAL-3 fix)
+      const execErr = execError as { stdout?: string; stderr?: string }
+      logger.error({ err: execError, stdout: execErr?.stdout, stderr: execErr?.stderr }, 'Spawn execution error')
+
       return NextResponse.json({
         success: false,
         spawnId,
-        error: execError.message || 'Failed to spawn agent',
+        error: 'Failed to spawn agent. Check server logs for details.',
         task,
         model,
         label,
@@ -161,16 +158,10 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 
 // Get spawn history
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = heavyLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, _auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200)
@@ -248,4 +239,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})

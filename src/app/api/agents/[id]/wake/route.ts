@@ -1,28 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { runOpenClaw } from '@/lib/command'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const resolvedParams = await params
-    const agentId = resolvedParams.id
-    const workspaceId = auth.user.workspace_id ?? 1;
+    const url = new URL(request.url)
+    const agentId = url.pathname.split('/').at(-2) ?? ''
+    const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json().catch(() => ({}))
     const customMessage =
       typeof body?.message === 'string' ? body.message.trim() : ''
 
     const db = getDatabase()
-    const agent: any = isNaN(Number(agentId))
-      ? db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
-      : db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)
+    type AgentRow = { id: number; name: string; role: string; session_key: string | null; status: string; last_seen: number | null; last_activity: string | null; created_at: number; updated_at: number; config: string | null; workspace_id: number; source: string | null; content_hash: string | null; workspace_path: string | null }
+    const agent = (isNaN(Number(agentId))
+      ? db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
+      : db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)) as AgentRow | undefined
 
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
@@ -56,10 +51,10 @@ export async function POST(
     return NextResponse.json({
       success: true,
       session_key: agent.session_key,
-      stdout: stdout.trim()
+      stdout: stdout.trim(),
     })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/agents/[id]/wake error')
     return NextResponse.json({ error: 'Failed to wake agent' }, { status: 500 })
   }
-}
+})

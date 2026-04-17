@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { pullFromGitHub } from '@/lib/github-sync-engine'
 import { getSyncPollerStatus } from '@/lib/github-sync-poller'
@@ -8,10 +8,7 @@ import { getSyncPollerStatus } from '@/lib/github-sync-poller'
 /**
  * GET /api/github/sync — sync status for all GitHub-linked projects.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'operator', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -39,18 +36,22 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/github/sync error')
     return NextResponse.json({ error: 'Failed to fetch sync status' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/github/sync — trigger sync manually.
  * Body: { action: 'trigger', project_id: number } or { action: 'trigger-all' }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
+  let body: { action?: string; project_id?: unknown }
+  try {
+    body = await request.json()
+  } catch {
+    // WHY: Return 400 for malformed JSON, not 500 — this is a client error, not a server fault.
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
   try {
-    const body = await request.json()
     const { action, project_id } = body
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
         SELECT id, github_repo, github_sync_enabled, github_default_branch
         FROM projects
         WHERE id = ? AND workspace_id = ? AND status = 'active'
-      `).get(project_id, workspaceId) as any | undefined
+      `).get(project_id, workspaceId) as { id: number; github_repo: string | null; github_sync_enabled: number | null; github_default_branch: string | null } | undefined
 
       if (!project) {
         return NextResponse.json({ error: 'Project not found' }, { status: 404 })
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
         SELECT id, github_repo, github_sync_enabled, github_default_branch
         FROM projects
         WHERE github_sync_enabled = 1 AND github_repo IS NOT NULL AND workspace_id = ? AND status = 'active'
-      `).all(workspaceId) as any[]
+      `).all(workspaceId) as Array<{ id: number; github_repo: string | null; github_sync_enabled: number | null; github_default_branch: string | null }>
 
       let totalPulled = 0
       let totalPushed = 0
@@ -106,4 +107,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/github/sync error')
     return NextResponse.json({ error: 'Sync trigger failed' }, { status: 500 })
   }
-}
+})

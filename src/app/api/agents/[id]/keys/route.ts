@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
+import { apiGuard } from '@/lib/api-guard'
 
 const ALLOWED_SCOPES = new Set([
   'viewer',
@@ -62,7 +62,7 @@ function parseScopes(rawScopes: unknown): string[] {
   return Array.from(new Set(scopes))
 }
 
-function parseExpiry(body: any): number | null {
+function parseExpiry(body: Record<string, unknown>): number | null {
   if (body?.expires_at != null) {
     const value = Number(body.expires_at)
     if (!Number.isInteger(value) || value <= 0) throw new Error('expires_at must be a future unix timestamp')
@@ -80,18 +80,13 @@ function parseExpiry(body: any): number | null {
   return null
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const resolved = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-2) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1
-    const agent = resolveAgent(db, resolved.id, workspaceId)
+    const agent = resolveAgent(db, id, workspaceId)
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     const rows = db
@@ -121,20 +116,15 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/agents/[id]/keys error')
     return NextResponse.json({ error: 'Failed to list agent API keys' }, { status: 500 })
   }
-}
+})
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const resolved = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-2) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1
-    const agent = resolveAgent(db, resolved.id, workspaceId)
+    const agent = resolveAgent(db, id, workspaceId)
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     const body = await request.json().catch(() => ({}))
@@ -191,20 +181,15 @@ export async function POST(
     logger.error({ err: error }, 'POST /api/agents/[id]/keys error')
     return NextResponse.json({ error: 'Failed to create agent API key' }, { status: 500 })
   }
-}
+})
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
-    const resolved = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-2) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1
-    const agent = resolveAgent(db, resolved.id, workspaceId)
+    const agent = resolveAgent(db, id, workspaceId)
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     const body = await request.json().catch(() => ({}))
@@ -231,4 +216,4 @@ export async function DELETE(
     logger.error({ err: error }, 'DELETE /api/agents/[id]/keys error')
     return NextResponse.json({ error: 'Failed to revoke agent API key' }, { status: 500 })
   }
-}
+})

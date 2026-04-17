@@ -3,8 +3,7 @@ import { existsSync, readdirSync, statSync } from 'fs'
 import path from 'path'
 import Database from 'better-sqlite3'
 import { config } from '@/lib/config'
-import { requireRole } from '@/lib/auth'
-import { readLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 
 interface AgentFileInfo {
@@ -74,13 +73,7 @@ function getAgentData(dbPath: string, agentName: string): AgentGraphData | null 
   }
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = readLimiter(request)
-  if (limited) return limited
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   if (!memoryDbDir || !existsSync(memoryDbDir)) {
     return NextResponse.json(
       { error: 'Memory directory not available', agents: [] },
@@ -112,4 +105,4 @@ export async function GET(request: NextRequest) {
     logger.error(`Failed to build memory graph data: ${err}`)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

@@ -1,3 +1,4 @@
+import { getErrorMessage, toError } from './types/sql'
 import { getDatabase, logAuditEvent } from './db'
 import { syncAgentsFromConfig } from './agent-sync'
 import { config, ensureDirExists } from './config'
@@ -85,8 +86,8 @@ async function runBackup(): Promise<{ ok: boolean; message: string }> {
 
     const sizeKB = Math.round(stat.size / 1024)
     return { ok: true, message: `Backup created (${sizeKB}KB)` }
-  } catch (err: any) {
-    return { ok: false, message: `Backup failed: ${err.message}` }
+  } catch (err: unknown) {
+    return { ok: false, message: `Backup failed: ${getErrorMessage(err)}` }
   }
 }
 
@@ -123,7 +124,7 @@ async function runCleanup(): Promise<{ ok: boolean; message: string }> {
         const raw = await readFile(config.tokensPath, 'utf-8')
         const data = JSON.parse(raw)
         const cutoffMs = Date.now() - ret.tokenUsage * 86400000
-        const kept = data.filter((r: any) => r.timestamp >= cutoffMs)
+        const kept = data.filter((r: { timestamp?: number }) => (r.timestamp ?? 0) >= cutoffMs)
         const removed = data.length - kept.length
 
         if (removed > 0) {
@@ -149,8 +150,8 @@ async function runCleanup(): Promise<{ ok: boolean; message: string }> {
     }
 
     return { ok: true, message: `Cleaned ${totalDeleted} stale record${totalDeleted === 1 ? '' : 's'}` }
-  } catch (err: any) {
-    return { ok: false, message: `Cleanup failed: ${err.message}` }
+  } catch (err: unknown) {
+    return { ok: false, message: `Cleanup failed: ${getErrorMessage(err)}` }
   }
 }
 
@@ -207,8 +208,8 @@ async function runHeartbeatCheck(): Promise<{ ok: boolean; message: string }> {
     })
 
     return { ok: true, message: `Marked ${staleAgents.length} agent(s) offline: ${names.join(', ')}` }
-  } catch (err: any) {
-    return { ok: false, message: `Heartbeat check failed: ${err.message}` }
+  } catch (err: unknown) {
+    return { ok: false, message: `Heartbeat check failed: ${getErrorMessage(err)}` }
   }
 }
 
@@ -382,8 +383,8 @@ async function tick() {
         : id === 'recurring_task_spawn' ? await spawnRecurringTasks()
         : await runCleanup()
       task.lastResult = { ...result, timestamp: now }
-    } catch (err: any) {
-      task.lastResult = { ok: false, message: err.message, timestamp: now }
+    } catch (err: unknown) {
+      task.lastResult = { ok: false, message: getErrorMessage(err), timestamp: now }
     } finally {
       task.running = false
       task.lastRun = now

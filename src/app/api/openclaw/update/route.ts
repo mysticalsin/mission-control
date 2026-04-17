@@ -1,15 +1,12 @@
+import { getErrorMessage, type ProcessError } from '@/lib/types/sql'
 import { NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { runOpenClaw } from '@/lib/command'
 import { getDatabase } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
-export async function POST(request: Request) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
-  }
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (_request, auth) => {
+  // update runs for up to 5min
   let installedBefore: string | null = null
 
   try {
@@ -54,11 +51,11 @@ export async function POST(request: Request) {
       newVersion: installedAfter,
       output: result.stdout,
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     const detail =
-      err?.stderr?.toString?.()?.trim() ||
-      err?.stdout?.toString?.()?.trim() ||
-      err?.message ||
+      (err as ProcessError).stderr?.toString?.()?.trim() ||
+      (err as ProcessError).stdout?.toString?.()?.trim() ||
+      getErrorMessage(err) ||
       'Unknown error during OpenClaw update'
 
     logger.error({ err }, 'OpenClaw update failed')
@@ -68,4 +65,4 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-}
+})

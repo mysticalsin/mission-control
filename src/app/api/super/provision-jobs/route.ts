@@ -1,14 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
 import { listProvisionJobs } from '@/lib/super-admin'
 
 /**
  * GET /api/super/provision-jobs - List provisioning jobs
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
 
   const { searchParams } = new URL(request.url)
   const tenant_id = searchParams.get('tenant_id')
@@ -22,14 +21,12 @@ export async function GET(request: NextRequest) {
   })
 
   return NextResponse.json({ jobs })
-}
+})
 
 /**
  * POST /api/super/provision-jobs - Queue an additional bootstrap/update job for an existing tenant
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
 
   try {
     const db = getDatabase()
@@ -46,7 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid job_type' }, { status: 400 })
     }
 
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId) as any
+    const tenant = db.prepare('SELECT id, slug, display_name, linux_user, plan_tier, status, openclaw_home, workspace_root, gateway_port, dashboard_port, config, created_by, created_at, updated_at FROM tenants WHERE id = ?').get(tenantId) as { id: number; slug: string; display_name: string; linux_user: string | null; plan_tier: string; status: string } | undefined
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
     }
@@ -66,9 +63,9 @@ export async function POST(request: NextRequest) {
 
     const id = Number(result.lastInsertRowid)
     return NextResponse.json({
-      job: db.prepare('SELECT * FROM provision_jobs WHERE id = ?').get(id),
+      job: db.prepare('SELECT id, tenant_id, job_type, status, dry_run, requested_by, approved_by, runner_host, idempotency_key, request_json, plan_json, result_json, error_text, started_at, completed_at, created_at, updated_at FROM provision_jobs WHERE id = ?').get(id),
     }, { status: 201 })
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed to queue job' }, { status: 500 })
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) || 'Failed to queue job' }, { status: 500 })
   }
-}
+})

@@ -1,25 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
-import { runClawdbot } from '@/lib/command'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
+import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { db_helpers } from '@/lib/db'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 // Only allow alphanumeric, hyphens, and underscores in session IDs
 const SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
-    const { id } = await params
+    const id = new URL(request.url).pathname.split('/').at(-2) ?? ''
     const { action } = await request.json()
 
     if (!SESSION_ID_RE.test(id)) {
@@ -36,20 +27,14 @@ export async function POST(
       )
     }
 
-    let result
+    let result: unknown
     if (action === 'terminate') {
-      result = await runClawdbot(
-        ['-c', `sessions_kill("${id}")`],
-        { timeoutMs: 10000 }
-      )
+      result = await callOpenClawGateway('sessions_kill', { sessionKey: id }, 10_000)
     } else {
       const message = action === 'monitor'
-        ? JSON.stringify({ type: 'control', action: 'monitor' })
-        : JSON.stringify({ type: 'control', action: 'pause' })
-      result = await runClawdbot(
-        ['-c', `sessions_send("${id}", ${JSON.stringify(message)})`],
-        { timeoutMs: 10000 }
-      )
+        ? { type: 'control', action: 'monitor' }
+        : { type: 'control', action: 'pause' }
+      result = await callOpenClawGateway('sessions_send', { sessionKey: id, message }, 10_000)
     }
 
     db_helpers.logActivity(
@@ -65,13 +50,13 @@ export async function POST(
       success: true,
       action,
       session: id,
-      stdout: result.stdout.trim(),
+      result,
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'Session control error')
     return NextResponse.json(
-      { error: error.message || 'Session control failed' },
+      { error: getErrorMessage(error) || 'Session control failed' },
       { status: 500 }
     )
   }
-}
+})

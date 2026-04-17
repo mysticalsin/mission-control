@@ -1,32 +1,35 @@
+import { SqlParam } from '@/lib/types/sql'
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, Activity } from '@/lib/db';
-import { requireRole } from '@/lib/auth';
+import { apiGuard } from '@/lib/api-guard';
 import { logger } from '@/lib/logger';
+
+/** Entity detail rows returned by per-type lookup queries */
+interface TaskDetailRow { id: number; title: string; status: string }
+interface AgentDetailRow { id: number; name: string; role: string; status: string }
+interface CommentDetailRow { id: number; content: string | null; task_id: number; task_title: string | null }
 
 /**
  * GET /api/activities - Get activity stream or stats
  * Query params: type, actor, entity_type, limit, offset, since, hours (for stats)
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const { searchParams, pathname } = new URL(request.url);
     const workspaceId = auth.user.workspace_id ?? 1;
-    
+
     // Route to stats endpoint if requested
     if (pathname.endsWith('/stats') || searchParams.has('stats')) {
       return handleStatsRequest(request, workspaceId);
     }
-    
+
     // Default activities endpoint
     return handleActivitiesRequest(request, workspaceId);
   } catch (error) {
     logger.error({ err: error }, 'GET /api/activities error');
     return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
   }
-}
+})
 
 /**
  * Handle regular activities request
@@ -45,8 +48,8 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
     const since = searchParams.get('since'); // Unix timestamp for real-time updates
     
     // Build dynamic query
-    let query = 'SELECT * FROM activities WHERE workspace_id = ?';
-    const params: any[] = [workspaceId];
+    let query = 'SELECT id, type, entity_type, entity_id, actor, description, data, created_at, workspace_id FROM activities WHERE workspace_id = ?';
+    const params: SqlParam[] = [workspaceId];
     
     if (type) {
       const types = type.split(',').map(t => t.trim()).filter(Boolean);
@@ -97,21 +100,21 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
       try {
         switch (activity.entity_type) {
           case 'task': {
-            const task = taskDetailStmt.get(activity.entity_id, workspaceId) as any;
+            const task = taskDetailStmt.get(activity.entity_id, workspaceId) as TaskDetailRow | undefined;
             if (task) {
               entityDetails = { type: 'task', ...task };
             }
             break;
           }
           case 'agent': {
-            const agent = agentDetailStmt.get(activity.entity_id, workspaceId) as any;
+            const agent = agentDetailStmt.get(activity.entity_id, workspaceId) as AgentDetailRow | undefined;
             if (agent) {
               entityDetails = { type: 'agent', ...agent };
             }
             break;
           }
           case 'comment': {
-            const comment = commentDetailStmt.get(activity.entity_id, workspaceId, workspaceId) as any;
+            const comment = commentDetailStmt.get(activity.entity_id, workspaceId, workspaceId) as CommentDetailRow | undefined;
             if (comment) {
               entityDetails = {
                 type: 'comment',
@@ -135,7 +138,7 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
     
     // Get total count for pagination
     let countQuery = 'SELECT COUNT(*) as total FROM activities WHERE workspace_id = ?';
-    const countParams: any[] = [workspaceId];
+    const countParams: SqlParam[] = [workspaceId];
     
     if (type) {
       const types = type.split(',').map(t => t.trim()).filter(Boolean);

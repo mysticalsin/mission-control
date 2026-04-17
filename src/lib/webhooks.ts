@@ -1,3 +1,4 @@
+import { getErrorMessage, toError } from './types/sql'
 import { createHmac, timingSafeEqual } from 'crypto'
 import { eventBus, type ServerEvent } from './event-bus'
 import { logger } from './logger'
@@ -90,28 +91,34 @@ export function initWebhookListener() {
     const mapping = EVENT_MAP[event.type]
     if (!mapping) return
 
+    // Narrow event.data (typed as unknown on the bus) to a usable record
+    const data: Record<string, unknown> =
+      event.data !== null && typeof event.data === 'object' && !Array.isArray(event.data)
+        ? (event.data as Record<string, unknown>)
+        : {}
+
     // Build the specific webhook event type
     let webhookEventType: string
-    if (mapping === 'activity' && event.data?.type) {
-      webhookEventType = `activity.${event.data.type}`
-    } else if (mapping === 'notification' && event.data?.type) {
-      webhookEventType = `notification.${event.data.type}`
-    } else if (mapping === 'security' && event.data?.action) {
-      webhookEventType = `security.${event.data.action}`
+    if (mapping === 'activity' && data.type) {
+      webhookEventType = `activity.${data.type}`
+    } else if (mapping === 'notification' && data.type) {
+      webhookEventType = `notification.${data.type}`
+    } else if (mapping === 'security' && data.action) {
+      webhookEventType = `security.${data.action}`
     } else {
       webhookEventType = mapping
     }
 
     // Also fire agent.error for error status specifically
-    const isAgentError = event.type === 'agent.status_changed' && event.data?.status === 'error'
-    const workspaceId = typeof event.data?.workspace_id === 'number' ? event.data.workspace_id : 1
+    const isAgentError = event.type === 'agent.status_changed' && data.status === 'error'
+    const workspaceId = typeof data.workspace_id === 'number' ? data.workspace_id : 1
 
-    fireWebhooksAsync(webhookEventType, event.data, workspaceId).catch((err) => {
+    fireWebhooksAsync(webhookEventType, data, workspaceId).catch((err) => {
       logger.error({ err }, 'Webhook dispatch error')
     })
 
     if (isAgentError) {
-      fireWebhooksAsync('agent.error', event.data, workspaceId).catch((err) => {
+      fireWebhooksAsync('agent.error', data, workspaceId).catch((err) => {
         logger.error({ err }, 'Webhook dispatch error')
       })
     }
@@ -136,7 +143,7 @@ async function fireWebhooksAsync(eventType: string, payload: Record<string, any>
     const { getDatabase } = await import('./db')
     const db = getDatabase()
     webhooks = db.prepare(
-      'SELECT * FROM webhooks WHERE enabled = 1 AND workspace_id = ?'
+      'SELECT id, name, url, secret, events, enabled, workspace_id, consecutive_failures FROM webhooks WHERE enabled = 1 AND workspace_id = ?'
     ).all(resolvedWorkspaceId) as Webhook[]
   } catch {
     return // DB not ready or table doesn't exist yet
@@ -219,8 +226,8 @@ async function deliverWebhook(
     if (responseBody && responseBody.length > 1000) {
       responseBody = responseBody.slice(0, 1000) + '...'
     }
-  } catch (err: any) {
-    error = err.name === 'AbortError' ? 'Timeout (10s)' : err.message
+  } catch (err: unknown) {
+    error = (toError(err) as Error & { name?: string }).name === 'AbortError' ? 'Timeout (10s)' : getErrorMessage(err)
   }
 
   const durationMs = Date.now() - start
@@ -366,7 +373,7 @@ export async function processWebhookRetries(): Promise<{ ok: boolean; message: s
     }
 
     return { ok: true, message: `Processed ${pendingRetries.length} retries (${succeeded} ok, ${failed} failed)` }
-  } catch (err: any) {
-    return { ok: false, message: `Webhook retry failed: ${err.message}` }
+  } catch (err: unknown) {
+    return { ok: false, message: `Webhook retry failed: ${getErrorMessage(err)}` }
   }
 }

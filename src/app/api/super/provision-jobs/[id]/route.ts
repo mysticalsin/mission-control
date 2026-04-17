@@ -1,19 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getProvisionJob, transitionProvisionJobStatus, ProvisionJobAction } from '@/lib/super-admin'
 
 /**
  * GET /api/super/provision-jobs/[id] - Get job details and events
  */
-export async function GET(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const params = await context.params
-  const id = Number(params.id)
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
+  const id = Number(new URL(request.url).pathname.split('/').at(-1))
   if (!Number.isInteger(id) || id <= 0) {
     return NextResponse.json({ error: 'Invalid job id' }, { status: 400 })
   }
@@ -22,21 +16,14 @@ export async function GET(
   if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
   return NextResponse.json({ job })
-}
+})
 
 /**
  * POST /api/super/provision-jobs/[id] - Change job approval state
  * Body: { action: 'approve' | 'reject' | 'cancel', reason?: string }
  */
-export async function POST(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const params = await context.params
-  const id = Number(params.id)
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
+  const id = Number(new URL(request.url).pathname.split('/').at(-1))
   if (!Number.isInteger(id) || id <= 0) {
     return NextResponse.json({ error: 'Invalid job id' }, { status: 400 })
   }
@@ -52,7 +39,7 @@ export async function POST(
 
     const job = transitionProvisionJobStatus(id, auth.user.username, action, reason)
     return NextResponse.json({ job })
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed to update provisioning job state' }, { status: 400 })
+  } catch (error: unknown) {
+    return NextResponse.json({ error: getErrorMessage(error) || 'Failed to update provisioning job state' }, { status: 400 })
   }
-}
+})

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { resolveWithin } from '@/lib/paths'
 import { checkSkillSecurity } from '@/lib/skill-registry'
 
@@ -88,6 +88,28 @@ function getSkillRoots(): SkillRoot[] {
   const openclawState = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME || join(home, '.openclaw')
   const openclawSkills = resolveSkillRoot('MC_SKILLS_OPENCLAW_DIR', join(openclawState, 'skills'))
   roots.push({ source: 'openclaw', path: openclawSkills })
+
+  // Add OpenClaw workspace-local skills (takes precedence when names conflict)
+  const workspaceDir = process.env.OPENCLAW_WORKSPACE_DIR || process.env.MISSION_CONTROL_WORKSPACE_DIR || join(openclawState, 'workspace')
+  const workspaceSkills = resolveSkillRoot('MC_SKILLS_WORKSPACE_DIR', join(workspaceDir, 'skills'))
+  roots.push({ source: 'workspace', path: workspaceSkills })
+
+  // Dynamic: scan for workspace-<agent> directories
+  try {
+    const { readdirSync, existsSync } = require('node:fs') as typeof import('node:fs')
+    const entries = readdirSync(openclawState) as string[]
+    for (const entry of entries) {
+      if (!entry.startsWith('workspace-')) continue
+      const skillsDir = join(openclawState, entry, 'skills')
+      if (existsSync(skillsDir)) {
+        const agentName = entry.replace('workspace-', '')
+        roots.push({ source: `workspace-${agentName}`, path: skillsDir })
+      }
+    }
+  } catch {
+    // openclawBase may not exist
+  }
+
   return roots
 }
 
@@ -180,10 +202,7 @@ function getSkillsFromDB(): SkillSummary[] | null {
   }
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   const roots = getSkillRoots()
   const { searchParams } = new URL(request.url)
   const mode = searchParams.get('mode')
@@ -253,6 +272,10 @@ export async function GET(request: NextRequest) {
       groupMap.set(root.source, { source: root.source, path: root.path, skills: [] })
     }
     for (const skill of dbSkills) {
+      // Dynamically add workspace-* groups not already in roots
+      if (!groupMap.has(skill.source) && skill.source.startsWith('workspace-')) {
+        groupMap.set(skill.source, { source: skill.source, path: '', skills: [] })
+      }
       const group = groupMap.get(skill.source)
       if (group) group.skills.push(skill)
     }
@@ -289,12 +312,9 @@ export async function GET(request: NextRequest) {
     groups: bySource,
     total: deduped.size,
   })
-}
+})
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const roots = getSkillRoots()
   const body = await request.json().catch(() => ({}))
   const root = getRootBySource(roots, body?.source)
@@ -309,12 +329,9 @@ export async function POST(request: NextRequest) {
   await mkdir(root.path, { recursive: true })
   const { skillPath, skillDocPath } = await upsertSkill(root, name, content)
   return NextResponse.json({ ok: true, source: root.source, name, skillPath, skillDocPath })
-}
+})
 
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const roots = getSkillRoots()
   const body = await request.json().catch(() => ({}))
   const root = getRootBySource(roots, body?.source)
@@ -328,12 +345,9 @@ export async function PUT(request: NextRequest) {
   await mkdir(root.path, { recursive: true })
   const { skillPath, skillDocPath } = await upsertSkill(root, name, content)
   return NextResponse.json({ ok: true, source: root.source, name, skillPath, skillDocPath })
-}
+})
 
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const roots = getSkillRoots()
   const root = getRootBySource(roots, searchParams.get('source'))
@@ -344,6 +358,6 @@ export async function DELETE(request: NextRequest) {
 
   const { skillPath } = await deleteSkill(root, name)
   return NextResponse.json({ ok: true, source: root.source, name, skillPath })
-}
+})
 
 export const dynamic = 'force-dynamic'

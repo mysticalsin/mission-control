@@ -1,7 +1,24 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { selfRegisterLimiter } from '@/lib/rate-limit'
+
+interface AgentRow {
+  id: number
+  name: string
+  role: string
+  status: string
+  session_key: string | null
+  last_seen: number | null
+  last_activity: number | null
+  created_at: number
+  updated_at: number
+  config: string | null
+  workspace_id: number
+  source: string | null
+  content_hash: string | null
+  workspace_path: string | null
+}
+import { apiGuard } from '@/lib/api-guard'
 import { logAuditEvent } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
@@ -20,24 +37,19 @@ const VALID_ROLES = ['coder', 'reviewer', 'tester', 'devops', 'researcher', 'ass
  *
  * Rate-limited to 5 registrations/min per IP to prevent spam.
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const limited = selfRegisterLimiter(request)
-  if (limited) return limited
-
-  let body: any
+export const POST = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, auth) => {
+  let body: Record<string, unknown>
   try {
-    body = await request.json()
+    body = await request.json() as Record<string, unknown>
   } catch {
     return NextResponse.json({ error: 'Request body required' }, { status: 400 })
   }
 
-  const name = typeof body?.name === 'string' ? body.name.trim() : ''
-  const role = typeof body?.role === 'string' ? body.role.trim() : 'agent'
-  const capabilities = Array.isArray(body?.capabilities) ? body.capabilities.filter((c: any) => typeof c === 'string') : []
-  const framework = typeof body?.framework === 'string' ? body.framework.trim() : null
+  const name = typeof body['name'] === 'string' ? (body['name'] as string).trim() : ''
+  const role = typeof body['role'] === 'string' ? (body['role'] as string).trim() : 'agent'
+  const rawCapabilities = body['capabilities']
+  const capabilities = Array.isArray(rawCapabilities) ? rawCapabilities.filter((c: unknown) => typeof c === 'string') as string[] : []
+  const framework = typeof body['framework'] === 'string' ? (body['framework'] as string).trim() : null
 
   if (!name || !NAME_RE.test(name)) {
     return NextResponse.json({
@@ -58,8 +70,8 @@ export async function POST(request: NextRequest) {
 
     // Check if agent already exists — idempotent: update last_seen and status
     const existing = db.prepare(
-      'SELECT * FROM agents WHERE name = ? AND workspace_id = ?'
-    ).get(name, workspaceId) as any | undefined
+      'SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?'
+    ).get(name, workspaceId) as AgentRow | undefined
 
     if (existing) {
       db.prepare(
@@ -80,7 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create new agent
-    const config: Record<string, any> = {}
+    const config: Record<string, unknown> = {}
     if (capabilities.length > 0) config.capabilities = capabilities
     if (framework) config.framework = framework
 
@@ -124,14 +136,14 @@ export async function POST(request: NextRequest) {
       registered: true,
       message: 'Agent registered successfully',
     }, { status: 201 })
-  } catch (error: any) {
-    if (error.message?.includes('UNIQUE constraint')) {
+  } catch (error: unknown) {
+    if (getErrorMessage(error)?.includes('UNIQUE constraint')) {
       // Race condition — another request registered the same name
       return NextResponse.json({ error: 'Agent name already exists' }, { status: 409 })
     }
     logger.error({ err: error }, 'POST /api/agents/register error')
     return NextResponse.json({ error: 'Registration failed' }, { status: 500 })
   }
-}
+})
 
 export const dynamic = 'force-dynamic'

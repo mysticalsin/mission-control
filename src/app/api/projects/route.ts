@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { apiGuard } from '@/lib/api-guard'
 import { logger } from '@/lib/logger'
 import { ensureTenantWorkspaceAccess, ForbiddenError } from '@/lib/workspaces'
 
@@ -19,9 +18,7 @@ function normalizePrefix(input: string): string {
   return normalized.slice(0, 12)
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
 
   try {
     const db = getDatabase()
@@ -62,15 +59,9 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/projects error')
     return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -129,4 +120,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/projects error')
     return NextResponse.json({ error: 'Failed to create project' }, { status: 500 })
   }
-}
+})

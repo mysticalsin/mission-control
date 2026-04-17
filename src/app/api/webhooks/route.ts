@@ -1,10 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { randomBytes } from 'crypto'
-import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { validateBody, createWebhookSchema } from '@/lib/validation'
+
+interface WebhookRow {
+  id: number
+  name: string
+  url: string
+  secret: string | null
+  events: string
+  enabled: number
+  last_fired_at: number | null
+  last_status: string | null
+  created_by: string | null
+  created_at: number
+  updated_at: number
+  workspace_id: number
+  consecutive_failures: number
+  // Extended fields added by delivery-count subqueries
+  total_deliveries?: number
+  successful_deliveries?: number
+  failed_deliveries?: number
+}
 
 const WEBHOOK_BLOCKED_HOSTNAMES = new Set([
   'localhost', '127.0.0.1', '::1', '0.0.0.0',
@@ -35,10 +55,7 @@ function isBlockedWebhookUrl(urlStr: string): boolean {
 /**
  * GET /api/webhooks - List all webhooks with delivery stats
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (_request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -50,7 +67,7 @@ export async function GET(request: NextRequest) {
       FROM webhooks w
       WHERE w.workspace_id = ?
       ORDER BY w.created_at DESC
-    `).all(workspaceId) as any[]
+    `).all(workspaceId) as WebhookRow[]
 
     // Parse events JSON, mask secret, add circuit breaker status
     const maxRetries = parseInt(process.env.MC_WEBHOOK_MAX_RETRIES || '5', 10) || 5
@@ -68,18 +85,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/webhooks error')
     return NextResponse.json({ error: 'Failed to fetch webhooks' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/webhooks - Create a new webhook
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -113,18 +124,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/webhooks error')
     return NextResponse.json({ error: 'Failed to create webhook' }, { status: 500 })
   }
-}
+})
 
 /**
  * PUT /api/webhooks - Update a webhook
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
-
+export const PUT = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -135,7 +140,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook ID is required' }, { status: 400 })
     }
 
-    const existing = db.prepare('SELECT * FROM webhooks WHERE id = ? AND workspace_id = ?').get(id, workspaceId) as any
+    const existing = db.prepare('SELECT id, name, url, secret, events, enabled, last_fired_at, last_status, created_by, created_at, updated_at, workspace_id, consecutive_failures FROM webhooks WHERE id = ? AND workspace_id = ?').get(id, workspaceId) as WebhookRow | undefined
     if (!existing) {
       return NextResponse.json({ error: 'Webhook not found' }, { status: 404 })
     }
@@ -150,7 +155,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const updates: string[] = ['updated_at = unixepoch()']
-    const params: any[] = []
+    const params: SqlParam[] = []
 
     if (name !== undefined) { updates.push('name = ?'); params.push(name) }
     if (url !== undefined) { updates.push('url = ?'); params.push(url) }
@@ -181,24 +186,21 @@ export async function PUT(request: NextRequest) {
     logger.error({ err: error }, 'PUT /api/webhooks error')
     return NextResponse.json({ error: 'Failed to update webhook' }, { status: 500 })
   }
-}
+})
 
 /**
  * DELETE /api/webhooks - Delete a webhook
  */
-export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const rateCheck = mutationLimiter(request)
-  if (rateCheck) return rateCheck
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, auth) => {
+  let reqBody: Record<string, unknown>
+  try { reqBody = await request.json() as Record<string, unknown> } catch {
+    return NextResponse.json({ error: 'Request body required' }, { status: 400 })
+  }
 
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    let body: any
-    try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
-    const id = body.id
+    const id = reqBody.id ? String(reqBody.id) : null
 
     if (!id) {
       return NextResponse.json({ error: 'Webhook ID is required' }, { status: 400 })
@@ -217,4 +219,4 @@ export async function DELETE(request: NextRequest) {
     logger.error({ err: error }, 'DELETE /api/webhooks error')
     return NextResponse.json({ error: 'Failed to delete webhook' }, { status: 500 })
   }
-}
+})

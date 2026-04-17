@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { destroySession, getUserFromRequest } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
+import { extractClientIp, loginLimiter } from '@/lib/rate-limit'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure, parseMcSessionCookieHeader } from '@/lib/session-cookie'
 
 export async function POST(request: Request) {
+  const rateCheck = loginLimiter(request)
+  if (rateCheck) return rateCheck
   const user = getUserFromRequest(request)
   const cookieHeader = request.headers.get('cookie') || ''
   const token = parseMcSessionCookieHeader(cookieHeader)
@@ -13,7 +16,7 @@ export async function POST(request: Request) {
   }
 
   if (user) {
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({ action: 'logout', actor: user.username, actor_id: user.id, ip_address: ipAddress })
   }
 

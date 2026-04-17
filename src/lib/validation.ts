@@ -157,7 +157,7 @@ export const qualityReviewSchema = z.object({
 
 export const spawnAgentSchema = z.object({
   task: z.string().min(1, 'Task is required'),
-  model: z.string().min(1, 'Model is required'),
+  model: z.string().min(1, 'Model is required').optional(),
   label: z.string().min(1, 'Label is required'),
   timeoutSeconds: z.number().min(10).max(3600).default(300),
 })
@@ -168,7 +168,7 @@ export const createUserSchema = z.object({
   display_name: z.string().optional(),
   role: z.enum(['admin', 'operator', 'viewer']).default('operator'),
   provider: z.enum(['local', 'google']).default('local'),
-  email: z.string().optional(),
+  email: z.string().email('Invalid email address').optional(),
 })
 
 export const accessRequestActionSchema = z.object({

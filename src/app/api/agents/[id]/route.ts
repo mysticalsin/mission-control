@@ -1,40 +1,49 @@
+import { getErrorMessage, toError } from '@/lib/types/sql'
+import { SqlParam } from '@/lib/types/sql'
+
+interface AgentRow {
+  id: number; name: string; role: string; session_key: string | null
+  status: string; last_seen: number | null; last_activity: string | null
+  created_at: number; updated_at: number; config: string | null
+  workspace_id: number; source: string | null; content_hash: string | null
+  workspace_path: string | null
+}
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers, logAuditEvent } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace, removeAgentFromConfig } from '@/lib/agent-sync'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 import { runOpenClaw } from '@/lib/command'
+import { apiGuard } from '@/lib/api-guard'
 
 /**
  * GET /api/agents/[id] - Get a single agent by ID or name
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (
+  request,
+  auth
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-1) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1;
 
     let agent
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId)
+      agent = db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId)
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
+      agent = db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
     }
 
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
 
+    const agentRow = agent as AgentRow
     const parsed = {
-      ...(agent as any),
-      config: enrichAgentConfigFromWorkspace((agent as any).config ? JSON.parse((agent as any).config) : {}),
+      ...agentRow,
+      config: enrichAgentConfigFromWorkspace(agentRow.config ? JSON.parse(agentRow.config) : {}),
     }
 
     return NextResponse.json({ agent: parsed })
@@ -42,7 +51,7 @@ export async function GET(
     logger.error({ err: error }, 'GET /api/agents/[id] error')
     return NextResponse.json({ error: 'Failed to fetch agent' }, { status: 500 })
   }
-}
+});
 
 /**
  * PUT /api/agents/[id] - Update agent config with unified MC + gateway save
@@ -53,25 +62,23 @@ export async function GET(
  *   write_to_gateway?: boolean - Defaults to true when gateway_config exists
  * }
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (
+  request,
+  auth
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-1) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json()
     const { role, gateway_config, write_to_gateway } = body
 
-    let agent
+    let agent: AgentRow | undefined
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
+      agent = db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as AgentRow | undefined
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+      agent = db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as AgentRow | undefined
     }
 
     if (!agent) {
@@ -92,8 +99,8 @@ export async function PUT(
       (write_to_gateway === undefined || write_to_gateway === null || write_to_gateway === true)
     )
     const openclawId = existingConfig.openclawId || agent.name.toLowerCase().replace(/\s+/g, '-')
-    const getWriteBackPayload = (source: Record<string, any>) => {
-      const writeBack: any = { id: openclawId }
+    const getWriteBackPayload = (source: Record<string, unknown>) => {
+      const writeBack: Record<string, unknown> = { id: openclawId }
       if (source.model) writeBack.model = source.model
       if (source.identity) writeBack.identity = source.identity
       if (source.sandbox) writeBack.sandbox = source.sandbox
@@ -107,7 +114,7 @@ export async function PUT(
     // If gateway write fails after DB succeeds, revert DB to keep consistency.
     try {
       const fields: string[] = ['updated_at = ?']
-      const values: any[] = [now]
+      const values: SqlParam[] = [now]
 
       if (role !== undefined) {
         fields.push('role = ?')
@@ -121,29 +128,29 @@ export async function PUT(
 
       values.push(agent.id, workspaceId)
       db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...values)
-    } catch (err: any) {
-      return NextResponse.json({ error: `Save failed: ${err.message}` }, { status: 500 })
+    } catch (err: unknown) {
+      return NextResponse.json({ error: `Save failed: ${getErrorMessage(err)}` }, { status: 500 })
     }
 
     if (shouldWriteToGateway) {
       try {
         await writeAgentToConfig(getWriteBackPayload(gateway_config))
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Gateway write failed — revert DB to previous state
         try {
           const revertFields: string[] = ['updated_at = ?']
-          const revertValues: any[] = [agent.updated_at]
+          const revertValues: SqlParam[] = [agent.updated_at]
           revertFields.push('role = ?')
           revertValues.push(agent.role)
           revertFields.push('config = ?')
           revertValues.push(agent.config || '{}')
           revertValues.push(agent.id, workspaceId)
           db.prepare(`UPDATE agents SET ${revertFields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...revertValues)
-        } catch (revertErr: any) {
+        } catch (revertErr: unknown) {
           logger.error({ err: revertErr, agent: agent.name }, 'Failed to revert DB after gateway write failure')
         }
         return NextResponse.json(
-          { error: `Save failed: unable to update gateway config: ${err.message}` },
+          { error: `Save failed: unable to update gateway config: ${getErrorMessage(err)}` },
           { status: 502 }
         )
       }
@@ -187,25 +194,23 @@ export async function PUT(
       success: true,
       agent: { ...agent, config: enrichedConfig, role: role || agent.role, updated_at: now },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'PUT /api/agents/[id] error')
-    return NextResponse.json({ error: error.message || 'Failed to update agent' }, { status: 500 })
+    return NextResponse.json({ error: getErrorMessage(error) || 'Failed to update agent' }, { status: 500 })
   }
-}
+});
 
 /**
  * DELETE /api/agents/[id] - Delete an agent
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const DELETE = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (
+  request,
+  auth
+) => {
   try {
     const db = getDatabase()
-    const { id } = await params
+    const url = new URL(request.url)
+    const id = url.pathname.split('/').at(-1) ?? ''
     const workspaceId = auth.user.workspace_id ?? 1;
     let removeWorkspace = false
     try {
@@ -215,11 +220,11 @@ export async function DELETE(
       // Optional body
     }
 
-    let agent
+    let agent: AgentRow | undefined
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
+      agent = db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as AgentRow | undefined
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+      agent = db.prepare('SELECT id, name, role, session_key, status, last_seen, last_activity, created_at, updated_at, config, workspace_id, source, content_hash, workspace_path FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as AgentRow | undefined
     }
 
     if (!agent) {
@@ -235,10 +240,10 @@ export async function DELETE(
           .replace(/^-+|-+$/g, '') || agent.name
       try {
         await runOpenClaw(['agents', 'delete', openclawId, '--force'], { timeoutMs: 30000 })
-      } catch (err: any) {
+      } catch (err: unknown) {
         logger.error({ err, openclawId, agent: agent.name }, 'Failed to remove OpenClaw agent/workspace')
         return NextResponse.json(
-          { error: `Failed to remove OpenClaw workspace for ${agent.name}: ${err?.message || 'unknown error'}` },
+          { error: `Failed to remove OpenClaw workspace for ${agent.name}: ${getErrorMessage(err) || 'unknown error'}` },
           { status: 502 }
         )
       }
@@ -253,8 +258,8 @@ export async function DELETE(
           .replace(/[^a-z0-9._-]+/g, '-')
           .replace(/^-+|-+$/g, '') || agent.name
       await removeAgentFromConfig({ id: openclawId, name: agent.name })
-    } catch (err: any) {
-      configCleanupWarning = `OpenClaw config cleanup skipped for ${agent.name}: ${err?.message || 'unknown error'}`
+    } catch (err: unknown) {
+      configCleanupWarning = `OpenClaw config cleanup skipped for ${agent.name}: ${getErrorMessage(err) || 'unknown error'}`
       logger.warn({ err, agent: agent.name }, 'Failed to remove OpenClaw agent config entry')
     }
 
@@ -282,4 +287,4 @@ export async function DELETE(
     logger.error({ err: error }, 'DELETE /api/agents/[id] error')
     return NextResponse.json({ error: 'Failed to delete agent' }, { status: 500 })
   }
-}
+});

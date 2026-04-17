@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { SqlParam } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { syncClaudeSessions } from '@/lib/claude-sessions'
 import { logger } from '@/lib/logger'
 
@@ -13,10 +14,7 @@ import { logger } from '@/lib/logger'
  *   limit=50       — max results (default 50, max 200)
  *   offset=0       — pagination offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, _auth) => {
   try {
     const db = getDatabase()
     const { searchParams } = new URL(request.url)
@@ -26,8 +24,8 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200)
     const offset = parseInt(searchParams.get('offset') || '0')
 
-    let query = 'SELECT * FROM claude_sessions WHERE 1=1'
-    const params: any[] = []
+    let query = 'SELECT id, session_id, project_slug, project_path, model, git_branch, user_messages, assistant_messages, tool_uses, input_tokens, output_tokens, estimated_cost, first_message_at, last_message_at, last_user_prompt, is_active, scanned_at, created_at, updated_at FROM claude_sessions WHERE 1=1'
+    const params: SqlParam[] = []
 
     if (active === '1') {
       query += ' AND is_active = 1'
@@ -45,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     // Get total count
     let countQuery = 'SELECT COUNT(*) as total FROM claude_sessions WHERE 1=1'
-    const countParams: any[] = []
+    const countParams: SqlParam[] = []
     if (active === '1') {
       countQuery += ' AND is_active = 1'
     }
@@ -65,7 +63,14 @@ export async function GET(request: NextRequest) {
         SUM(estimated_cost) as total_estimated_cost,
         COUNT(DISTINCT project_slug) as unique_projects
       FROM claude_sessions
-    `).get() as any
+    `).get() as {
+      total_sessions: number
+      active_sessions: number
+      total_input_tokens: number
+      total_output_tokens: number
+      total_estimated_cost: number
+      unique_projects: number
+    }
 
     return NextResponse.json({
       sessions,
@@ -83,15 +88,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/claude/sessions error')
     return NextResponse.json({ error: 'Failed to fetch Claude sessions' }, { status: 500 })
   }
-}
+})
 
 /**
  * POST /api/claude/sessions — Trigger a manual scan of local Claude sessions
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (_request, _auth) => {
   try {
     const result = await syncClaudeSessions()
     return NextResponse.json(result)
@@ -99,4 +101,4 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/claude/sessions error')
     return NextResponse.json({ error: 'Failed to scan Claude sessions' }, { status: 500 })
   }
-}
+})

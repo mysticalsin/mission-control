@@ -1,20 +1,28 @@
+import { SqlParam } from '@/lib/types/sql'
+
+interface ProjectSyncRow {
+  id: number
+  github_repo: string | null
+  github_sync_enabled: number | null
+}
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, Task, db_helpers } from '@/lib/db';
 import { eventBus } from '@/lib/event-bus';
-import { requireRole } from '@/lib/auth';
-import { mutationLimiter } from '@/lib/rate-limit';
+import { apiGuard } from '@/lib/api-guard';
 import { logger } from '@/lib/logger';
 import { validateBody, createTaskSchema, bulkUpdateTaskStatusSchema } from '@/lib/validation';
 import { resolveMentionRecipients } from '@/lib/mentions';
 import { normalizeTaskCreateStatus } from '@/lib/task-status';
 import { pushTaskToGitHub } from '@/lib/github-sync-engine';
+import { pushTaskToGnap } from '@/lib/gnap-sync';
+import { config } from '@/lib/config';
 
 function formatTicketRef(prefix?: string | null, num?: number | null): string | undefined {
   if (!prefix || typeof num !== 'number' || !Number.isFinite(num) || num <= 0) return undefined
   return `${prefix}-${String(num).padStart(3, '0')}`
 }
 
-function mapTaskRow(task: any): Task & { tags: string[]; metadata: Record<string, unknown> } {
+function mapTaskRow(task: Task & { project_name?: string; project_prefix?: string }): Task & { tags: string[]; metadata: Record<string, unknown> } {
   return {
     ...task,
     tags: task.tags ? JSON.parse(task.tags) : [],
@@ -60,10 +68,7 @@ function hasAegisApproval(db: ReturnType<typeof getDatabase>, taskId: number, wo
  * GET /api/tasks - List all tasks with optional filtering
  * Query params: status, assigned_to, priority, project_id, limit, offset
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
+export const GET = apiGuard({ role: 'viewer', rateLimit: 'read' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id;
@@ -76,7 +81,7 @@ export async function GET(request: NextRequest) {
     const projectIdParam = Number.parseInt(searchParams.get('project_id') || '', 10);
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200);
     const offset = parseInt(searchParams.get('offset') || '0');
-    
+
     // Build dynamic query
     let query = `
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
@@ -85,18 +90,18 @@ export async function GET(request: NextRequest) {
         ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.workspace_id = ?
     `;
-    const params: any[] = [workspaceId];
-    
+    const params: SqlParam[] = [workspaceId];
+
     if (status) {
       query += ' AND t.status = ?';
       params.push(status);
     }
-    
+
     if (assigned_to) {
       query += ' AND t.assigned_to = ?';
       params.push(assigned_to);
     }
-    
+
     if (priority) {
       query += ' AND t.priority = ?';
       params.push(priority);
@@ -106,19 +111,19 @@ export async function GET(request: NextRequest) {
       query += ' AND t.project_id = ?';
       params.push(projectIdParam);
     }
-    
+
     query += ' ORDER BY t.created_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
-    
+
     const stmt = db.prepare(query);
     const tasks = stmt.all(...params) as Task[];
-    
+
     // Parse JSON fields
     const tasksWithParsedData = tasks.map(mapTaskRow);
-    
+
     // Get total count for pagination
     let countQuery = 'SELECT COUNT(*) as total FROM tasks WHERE workspace_id = ?';
-    const countParams: any[] = [workspaceId];
+    const countParams: SqlParam[] = [workspaceId];
     if (status) {
       countQuery += ' AND status = ?';
       countParams.push(status);
@@ -142,18 +147,12 @@ export async function GET(request: NextRequest) {
     logger.error({ err: error }, 'GET /api/tasks error');
     return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 });
   }
-}
+})
 
 /**
  * POST /api/tasks - Create a new task
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const POST = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id;
@@ -184,13 +183,16 @@ export async function POST(request: NextRequest) {
       metadata = {}
     } = body;
     const normalizedStatus = normalizeTaskCreateStatus(status, assigned_to)
-    
-    // Check for duplicate title
-    const existingTask = db.prepare('SELECT id FROM tasks WHERE title = ? AND workspace_id = ?').get(title, workspaceId);
-    if (existingTask) {
-      return NextResponse.json({ error: 'Task with this title already exists' }, { status: 409 });
+
+    // Resolve project_id for the task
+    const resolvedProjectId = resolveProjectId(db, workspaceId, project_id)
+
+    // Reject duplicate titles within the same workspace (409 Conflict)
+    const dupCheck = db.prepare('SELECT id FROM tasks WHERE title = ? AND workspace_id = ?').get(title, workspaceId) as { id: number } | undefined
+    if (dupCheck) {
+      return NextResponse.json({ error: 'A task with this title already exists' }, { status: 409 })
     }
-    
+
     const now = Math.floor(Date.now() / 1000);
     const mentionResolution = resolveMentionRecipients(description || '', db, workspaceId);
     if (mentionResolution.unresolved.length > 0) {
@@ -203,7 +205,6 @@ export async function POST(request: NextRequest) {
     const resolvedCompletedAt = completed_at ?? (normalizedStatus === 'done' ? now : null)
 
     const createTaskTx = db.transaction(() => {
-      const resolvedProjectId = resolveProjectId(db, workspaceId, project_id)
       db.prepare(`
         UPDATE projects
         SET ticket_counter = ticket_counter + 1, updated_at = unixepoch()
@@ -253,7 +254,7 @@ export async function POST(request: NextRequest) {
     })
 
     const taskId = createTaskTx()
-    
+
     // Log activity
     db_helpers.logActivity('task_created', 'task', taskId, actor, `Created task: ${title}`, {
       title,
@@ -294,7 +295,7 @@ export async function POST(request: NextRequest) {
         workspaceId
       );
     }
-    
+
     // Fetch the created task
     const createdTask = db.prepare(`
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
@@ -310,12 +311,18 @@ export async function POST(request: NextRequest) {
       const project = db.prepare(`
         SELECT id, github_repo, github_sync_enabled FROM projects
         WHERE id = ? AND workspace_id = ?
-      `).get(parsedTask.project_id, workspaceId) as any
+      `).get(parsedTask.project_id, workspaceId) as ProjectSyncRow | undefined
       if (project?.github_sync_enabled && project?.github_repo) {
-        pushTaskToGitHub(parsedTask as any, project).catch(err =>
+        pushTaskToGitHub(parsedTask as Task, project).catch(err =>
           logger.error({ err, taskId }, 'Outbound GitHub sync failed for new task')
         )
       }
+    }
+
+    // Fire-and-forget GNAP sync for new tasks
+    if (config.gnap.enabled && config.gnap.autoSync) {
+      try { pushTaskToGnap(parsedTask as Task, config.gnap.repoPath) }
+      catch (err) { logger.warn({ err, taskId }, 'GNAP sync failed for new task') }
     }
 
     // Broadcast to SSE clients
@@ -326,18 +333,12 @@ export async function POST(request: NextRequest) {
     logger.error({ err: error }, 'POST /api/tasks error');
     return NextResponse.json({ error: 'Failed to create task' }, { status: 500 });
   }
-}
+})
 
 /**
  * PUT /api/tasks - Update multiple tasks (for drag-and-drop status changes)
  */
-export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const rateCheck = mutationLimiter(request);
-  if (rateCheck) return rateCheck;
-
+export const PUT = apiGuard({ role: 'operator', rateLimit: 'mutation' }, async (request, auth) => {
   try {
     const db = getDatabase();
     const workspaceId = auth.user.workspace_id;
@@ -360,9 +361,9 @@ export async function PUT(request: NextRequest) {
 
     const actor = auth.user.username
 
-    const transaction = db.transaction((tasksToUpdate: any[]) => {
+    const transaction = db.transaction((tasksToUpdate: Array<{ id: number; status: string }>) => {
       for (const task of tasksToUpdate) {
-        const oldTask = db.prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?').get(task.id, workspaceId) as Task;
+        const oldTask = db.prepare('SELECT id, title, description, status, priority, assigned_to, created_by, created_at, updated_at, due_date, estimated_hours, actual_hours, tags, metadata, workspace_id, project_id, project_ticket_no, outcome, error_message, resolution, feedback_rating, feedback_notes, retry_count, completed_at, github_issue_number, github_repo, github_synced_at, github_branch, github_pr_number, github_pr_state FROM tasks WHERE id = ? AND workspace_id = ?').get(task.id, workspaceId) as Task;
         if (!oldTask) continue;
 
         if (task.status === 'done' && !hasAegisApproval(db, task.id, workspaceId)) {
@@ -389,7 +390,7 @@ export async function PUT(request: NextRequest) {
         }
       }
     });
-    
+
     transaction(tasks);
 
     // Broadcast status changes to SSE clients
@@ -410,4 +411,4 @@ export async function PUT(request: NextRequest) {
     }
     return NextResponse.json({ error: 'Failed to update tasks' }, { status: 500 });
   }
-}
+})

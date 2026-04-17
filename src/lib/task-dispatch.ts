@@ -1,149 +1,22 @@
+// ---------------------------------------------------------------------------
+// Task Dispatch — orchestrators: dispatchAssignedTasks + runAegisReviews
+// Callers import from this file. Sub-modules handle types, model routing,
+// prompt building, and response parsing.
+// ---------------------------------------------------------------------------
+import { getErrorMessage } from './types/sql'
 import { getDatabase, db_helpers } from './db'
 import { runOpenClaw } from './command'
+import { callOpenClawGateway } from './openclaw-gateway'
 import { eventBus } from './event-bus'
 import { logger } from './logger'
 
-interface DispatchableTask {
-  id: number
-  title: string
-  description: string | null
-  status: string
-  priority: string
-  assigned_to: string
-  workspace_id: number
-  agent_name: string
-  agent_id: number
-  ticket_prefix: string | null
-  project_ticket_no: number | null
-  project_id: number | null
-  tags?: string[]
-}
+import { type DispatchableTask, type AgentResponseParsed, type ReviewableTask } from './task-dispatch-types'
+import { classifyTaskModel, resolveGatewayAgentId, resolveGatewayAgentIdForReview } from './task-dispatch-model'
+import { buildTaskPrompt, buildReviewPrompt } from './task-dispatch-prompts'
+import { parseGatewayJson, parseAgentResponse, parseReviewVerdict } from './task-dispatch-parsers'
 
-function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | null): string {
-  const ticket = task.ticket_prefix && task.project_ticket_no
-    ? `${task.ticket_prefix}-${String(task.project_ticket_no).padStart(3, '0')}`
-    : `TASK-${task.id}`
-
-  const lines = [
-    'You have been assigned a task in Mission Control.',
-    '',
-    `**[${ticket}] ${task.title}**`,
-    `Priority: ${task.priority}`,
-  ]
-
-  if (task.tags && task.tags.length > 0) {
-    lines.push(`Tags: ${task.tags.join(', ')}`)
-  }
-
-  if (task.description) {
-    lines.push('', task.description)
-  }
-
-  if (rejectionFeedback) {
-    lines.push('', '## Previous Review Feedback', rejectionFeedback, '', 'Please address this feedback in your response.')
-  }
-
-  lines.push('', 'Complete this task and provide your response. Be concise and actionable.')
-  return lines.join('\n')
-}
-
-/** Extract first valid JSON object from raw stdout (handles surrounding text/warnings). */
-function parseGatewayJson(raw: string): any | null {
-  const trimmed = String(raw || '').trim()
-  if (!trimmed) return null
-  const start = trimmed.indexOf('{')
-  const end = trimmed.lastIndexOf('}')
-  if (start < 0 || end < start) return null
-  try {
-    return JSON.parse(trimmed.slice(start, end + 1))
-  } catch {
-    return null
-  }
-}
-
-interface AgentResponseParsed {
-  text: string | null
-  sessionId: string | null
-}
-
-function parseAgentResponse(stdout: string): AgentResponseParsed {
-  try {
-    const parsed = JSON.parse(stdout)
-    const sessionId: string | null = typeof parsed?.sessionId === 'string' ? parsed.sessionId
-      : typeof parsed?.session_id === 'string' ? parsed.session_id
-      : null
-
-    // OpenClaw agent --json returns { payloads: [{ text: "..." }] }
-    if (parsed?.payloads?.[0]?.text) {
-      return { text: parsed.payloads[0].text, sessionId }
-    }
-    // Fallback: if there's a result or output field
-    if (parsed?.result) return { text: String(parsed.result), sessionId }
-    if (parsed?.output) return { text: String(parsed.output), sessionId }
-    // Last resort: stringify the whole response
-    return { text: JSON.stringify(parsed, null, 2), sessionId }
-  } catch {
-    // Not valid JSON — return raw stdout if non-empty
-    return { text: stdout.trim() || null, sessionId: null }
-  }
-}
-
-interface ReviewableTask {
-  id: number
-  title: string
-  description: string | null
-  resolution: string | null
-  assigned_to: string | null
-  workspace_id: number
-  ticket_prefix: string | null
-  project_ticket_no: number | null
-}
-
-function buildReviewPrompt(task: ReviewableTask): string {
-  const ticket = task.ticket_prefix && task.project_ticket_no
-    ? `${task.ticket_prefix}-${String(task.project_ticket_no).padStart(3, '0')}`
-    : `TASK-${task.id}`
-
-  const lines = [
-    'You are Aegis, the quality reviewer for Mission Control.',
-    'Review the following completed task and its resolution.',
-    '',
-    `**[${ticket}] ${task.title}**`,
-  ]
-
-  if (task.description) {
-    lines.push('', '## Task Description', task.description)
-  }
-
-  if (task.resolution) {
-    lines.push('', '## Agent Resolution', task.resolution.substring(0, 6000))
-  }
-
-  lines.push(
-    '',
-    '## Instructions',
-    'Evaluate whether the agent\'s response adequately addresses the task.',
-    'Respond with EXACTLY one of these two formats:',
-    '',
-    'If the work is acceptable:',
-    'VERDICT: APPROVED',
-    'NOTES: <brief summary of why it passes>',
-    '',
-    'If the work needs improvement:',
-    'VERDICT: REJECTED',
-    'NOTES: <specific issues that need to be fixed>',
-  )
-
-  return lines.join('\n')
-}
-
-function parseReviewVerdict(text: string): { status: 'approved' | 'rejected'; notes: string } {
-  const upper = text.toUpperCase()
-  const status = upper.includes('VERDICT: APPROVED') ? 'approved' as const : 'rejected' as const
-  const notesMatch = text.match(/NOTES:\s*(.+)/i)
-  const notes = notesMatch?.[1]?.trim().substring(0, 2000) || (status === 'approved' ? 'Quality check passed' : 'Quality check failed')
-  return { status, notes }
-}
+// Re-export types so callers that import from this barrel don't break
+export type { DispatchableTask, AgentResponseParsed, ReviewableTask } from './task-dispatch-types'
 
 /**
  * Run Aegis quality reviews on tasks in 'review' status.
@@ -154,9 +27,10 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
   const tasks = db.prepare(`
     SELECT t.id, t.title, t.description, t.resolution, t.assigned_to, t.workspace_id,
-           p.ticket_prefix, t.project_ticket_no
+           p.ticket_prefix, t.project_ticket_no, a.config as agent_config
     FROM tasks t
     LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
+    LEFT JOIN agents a ON a.name = t.assigned_to AND a.workspace_id = t.workspace_id
     WHERE t.status = 'review'
     ORDER BY t.updated_at ASC
     LIMIT 3
@@ -181,8 +55,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
     try {
       const prompt = buildReviewPrompt(task)
-      // Use the assigned agent or fall back to a default reviewer agent
-      const reviewAgent = task.assigned_to || 'jarv'
+      const reviewAgent = resolveGatewayAgentIdForReview(task)
 
       const invokeParams = {
         message: prompt,
@@ -190,22 +63,18 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
         idempotencyKey: `aegis-review-${task.id}-${Date.now()}`,
         deliver: false,
       }
-      const invokeResult = await runOpenClaw(
-        ['gateway', 'call', 'agent', '--timeout', '10000', '--params', JSON.stringify(invokeParams), '--json'],
-        { timeoutMs: 12_000 }
-      )
-      const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-        ?? parseGatewayJson(String((invokeResult as any)?.stderr || ''))
-      const runId = acceptedPayload?.runId
-      if (!runId) throw new Error('Gateway did not return a runId for Aegis review')
-
-      const waitResult = await runOpenClaw(
-        ['gateway', 'call', 'agent.wait', '--timeout', '120000', '--params', JSON.stringify({ runId, timeoutMs: 115_000 }), '--json'],
+      // Use --expect-final to block until the agent completes and returns the full
+      // response payload (payloads[0].text). The two-step agent → agent.wait pattern
+      // only returns lifecycle metadata (runId/status/timestamps) and never includes
+      // the agent's actual text, so Aegis could never parse a verdict.
+      const finalResult = await runOpenClaw(
+        ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
         { timeoutMs: 125_000 }
       )
-      const waitPayload = parseGatewayJson(waitResult.stdout)
+      const finalPayload = parseGatewayJson(finalResult.stdout)
+        ?? parseGatewayJson(finalResult.stderr || '')
       const agentResponse = parseAgentResponse(
-        waitPayload?.result ? JSON.stringify(waitPayload.result) : waitResult.stdout
+        finalPayload?.result ? JSON.stringify(finalPayload.result) : finalResult.stdout
       )
       if (!agentResponse.text) {
         throw new Error('Aegis review returned empty response')
@@ -213,7 +82,6 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
       const verdict = parseReviewVerdict(agentResponse.text)
 
-      // Insert quality review record
       db.prepare(`
         INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id)
         VALUES (?, 'aegis', ?, ?, ?)
@@ -258,8 +126,8 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
       results.push({ id: task.id, verdict: verdict.status })
       logger.info({ taskId: task.id, verdict: verdict.status }, 'Aegis review completed')
-    } catch (err: any) {
-      const errorMsg = err.message || 'Unknown error'
+    } catch (err: unknown) {
+      const errorMsg = getErrorMessage(err) || 'Unknown error'
       logger.error({ taskId: task.id, err }, 'Aegis review failed')
 
       // Revert to review so it can be retried
@@ -290,7 +158,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
   const db = getDatabase()
 
   const tasks = db.prepare(`
-    SELECT t.*, a.name as agent_name, a.id as agent_id,
+    SELECT t.*, a.name as agent_name, a.id as agent_id, a.config as agent_config,
            p.ticket_prefix, t.project_ticket_no
     FROM tasks t
     JOIN agents a ON a.name = t.assigned_to AND a.workspace_id = t.workspace_id
@@ -349,35 +217,76 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
       const prompt = buildTaskPrompt(task, rejectionFeedback)
 
-      // Step 1: Invoke via gateway
-      const invokeParams = {
-        message: prompt,
-        agentId: task.agent_name,
-        idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
-        deliver: false,
-      }
-      const invokeResult = await runOpenClaw(
-        ['gateway', 'call', 'agent', '--timeout', '10000', '--params', JSON.stringify(invokeParams), '--json'],
-        { timeoutMs: 12_000 }
-      )
-      const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-        ?? parseGatewayJson(String((invokeResult as any)?.stderr || ''))
-      const runId = acceptedPayload?.runId
-      if (!runId) throw new Error('Gateway did not return a runId for task dispatch')
+      // Check if task has a target session specified in metadata
+      const taskMeta = (() => {
+        try {
+          const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(task.id) as { metadata: string } | undefined
+          return row?.metadata ? JSON.parse(row.metadata) : {}
+        } catch { return {} }
+      })()
+      const targetSession: string | null = typeof taskMeta?.target_session === 'string' && taskMeta.target_session
+        ? taskMeta.target_session
+        : null
 
-      // Step 2: Wait for completion
-      const waitResult = await runOpenClaw(
-        ['gateway', 'call', 'agent.wait', '--timeout', '120000', '--params', JSON.stringify({ runId, timeoutMs: 115_000 }), '--json'],
-        { timeoutMs: 125_000 }
-      )
-      const waitPayload = parseGatewayJson(waitResult.stdout)
+      let agentResponse: AgentResponseParsed
 
-      const agentResponse = parseAgentResponse(
-        waitPayload?.result ? JSON.stringify(waitPayload.result) : waitResult.stdout
-      )
-      // Capture sessionId from the wait payload if not in the parsed response
-      if (!agentResponse.sessionId && waitPayload?.sessionId) {
-        agentResponse.sessionId = waitPayload.sessionId
+      if (targetSession) {
+        // Dispatch to a specific existing session via chat.send
+        logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Dispatching task to targeted session')
+        const sendResult = await callOpenClawGateway<Record<string, unknown>>(
+          'chat.send',
+          {
+            sessionKey: targetSession,
+            message: prompt,
+            idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
+            deliver: false,
+          },
+          125_000,
+        )
+        const status = String(sendResult?.status || '').toLowerCase()
+        if (status !== 'started' && status !== 'ok' && status !== 'in_flight') {
+          throw new Error(`chat.send to session ${targetSession} returned status: ${status}`)
+        }
+        // chat.send is fire-and-forget; we record the session but won't get inline response text
+        agentResponse = {
+          text: `Task dispatched to existing session ${targetSession}. The agent will process it within that session context.`,
+          sessionId: typeof sendResult?.runId === 'string' ? sendResult.runId : targetSession,
+        }
+      } else {
+        // Step 1: Invoke via gateway (new session)
+        const gatewayAgentId = resolveGatewayAgentId(task)
+        const dispatchModel = classifyTaskModel(task)
+        const invokeParams: Record<string, unknown> = {
+          message: prompt,
+          agentId: gatewayAgentId,
+          idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
+          deliver: false,
+        }
+        // Route to appropriate model tier based on task complexity.
+        // null = no override, agent uses its own configured default model.
+        if (dispatchModel) invokeParams.model = dispatchModel
+
+        // Use --expect-final to block until the agent completes and returns the full
+        // response payload (result.payloads[0].text). The two-step agent → agent.wait
+        // pattern only returns lifecycle metadata and never includes the agent's text.
+        const finalResult = await runOpenClaw(
+          ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
+          { timeoutMs: 125_000 }
+        )
+        const finalPayload = parseGatewayJson(finalResult.stdout)
+          ?? parseGatewayJson(finalResult.stderr || '')
+
+        agentResponse = parseAgentResponse(
+          finalPayload?.result ? JSON.stringify(finalPayload.result) : finalResult.stdout
+        )
+        if (!agentResponse.sessionId && finalPayload?.result) {
+          const result = finalPayload.result as Record<string, unknown>
+          const meta = result?.meta as Record<string, unknown> | undefined
+          const agentMeta = meta?.agentMeta as Record<string, unknown> | undefined
+          if (agentMeta?.sessionId) {
+            agentResponse.sessionId = String(agentMeta.sessionId)
+          }
+        }
       }
 
       if (!agentResponse.text) {
@@ -399,12 +308,10 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         existingMeta.dispatch_session_id = agentResponse.sessionId
       }
 
-      // Update task: status → review, set outcome
       db.prepare(`
         UPDATE tasks SET status = ?, outcome = ?, resolution = ?, metadata = ?, updated_at = ? WHERE id = ?
       `).run('review', 'success', truncated, JSON.stringify(existingMeta), Math.floor(Date.now() / 1000), task.id)
 
-      // Add a comment from the agent with the full response
       db.prepare(`
         INSERT INTO comments (task_id, author, content, created_at, workspace_id)
         VALUES (?, ?, ?, ?, ?)
@@ -442,8 +349,8 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
       results.push({ id: task.id, success: true })
       logger.info({ taskId: task.id, agent: task.agent_name }, 'Task dispatched and completed')
-    } catch (err: any) {
-      const errorMsg = err.message || 'Unknown error'
+    } catch (err: unknown) {
+      const errorMsg = getErrorMessage(err) || 'Unknown error'
       logger.error({ taskId: task.id, agent: task.agent_name, err }, 'Task dispatch failed')
 
       // Revert to assigned so it can be retried on the next tick

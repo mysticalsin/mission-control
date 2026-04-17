@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server'
-import { getUserFromRequest } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { getDatabase, logAuditEvent } from '@/lib/db'
+import { extractClientIp } from '@/lib/rate-limit'
 
-export async function POST(request: Request) {
-  const user = getUserFromRequest(request)
-  if (!user || user.id === 0) {
-    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
-  }
+export const POST = apiGuard({ role: 'viewer', rateLimit: 'mutation' }, async (request, auth) => {
+  const user = auth.user
 
   if (user.provider !== 'google') {
     return NextResponse.json({ error: 'Account is not connected to Google' }, { status: 400 })
@@ -29,7 +27,7 @@ export async function POST(request: Request) {
     WHERE id = ?
   `).run(user.id)
 
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   const userAgent = request.headers.get('user-agent') || undefined
   logAuditEvent({
     action: 'google_disconnect',
@@ -40,4 +38,4 @@ export async function POST(request: Request) {
   })
 
   return NextResponse.json({ ok: true })
-}
+})

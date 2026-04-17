@@ -1,9 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { getErrorMessage } from '@/lib/types/sql'
+import { NextResponse } from 'next/server'
+
+/** Node.js child_process errors include stderr and message */
+interface ExecError { stderr?: Buffer | string; message?: string }
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { requireRole, getUserFromRequest } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
+import { getUserFromRequest } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
@@ -85,9 +90,9 @@ function installToolForUser(
           stdio: 'pipe',
           env: { ...process.env, HOME: homeDir },
         })
-      } catch (npmErr: any) {
+      } catch (npmErr: unknown) {
         // Dir structure created but npm install failed — still partially useful
-        const msg = npmErr?.stderr?.toString?.()?.slice(0, 200) || npmErr?.message || 'npm install failed'
+        const msg = (npmErr as ExecError)?.stderr?.toString?.()?.slice(0, 200) || (npmErr as ExecError)?.message || 'npm install failed'
         logger.warn({ tool, username, err: msg }, 'openclaw npm install failed, dir structure created')
         return { success: true, error: `dirs created but npm install failed: ${msg}` }
       }
@@ -102,7 +107,7 @@ function installToolForUser(
           stdio: 'pipe',
           env: { ...process.env, HOME: homeDir },
         })
-      } catch (npmErr: any) {
+      } catch (npmErr: unknown) {
         // Fallback: create config dir so checkToolExists detects it
         const claudeDir = path.join(homeDir, '.claude')
         try {
@@ -110,7 +115,7 @@ function installToolForUser(
         } catch {
           fs.mkdirSync(claudeDir, { recursive: true })
         }
-        const msg = npmErr?.stderr?.toString?.()?.slice(0, 200) || npmErr?.message || 'npm install failed'
+        const msg = (npmErr as ExecError)?.stderr?.toString?.()?.slice(0, 200) || (npmErr as ExecError)?.message || 'npm install failed'
         return { success: false, error: msg }
       }
       return { success: true }
@@ -124,7 +129,7 @@ function installToolForUser(
           stdio: 'pipe',
           env: { ...process.env, HOME: homeDir },
         })
-      } catch (npmErr: any) {
+      } catch (npmErr: unknown) {
         // Fallback: create config dir so checkToolExists detects it
         const codexDir = path.join(homeDir, '.codex')
         try {
@@ -132,15 +137,15 @@ function installToolForUser(
         } catch {
           fs.mkdirSync(codexDir, { recursive: true })
         }
-        const msg = npmErr?.stderr?.toString?.()?.slice(0, 200) || npmErr?.message || 'npm install failed'
+        const msg = (npmErr as ExecError)?.stderr?.toString?.()?.slice(0, 200) || (npmErr as ExecError)?.message || 'npm install failed'
         return { success: false, error: msg }
       }
       return { success: true }
     }
 
     return { success: false, error: `Unknown tool: ${tool}` }
-  } catch (e: any) {
-    return { success: false, error: e?.message || 'Unknown error' }
+  } catch (e: unknown) {
+    return { success: false, error: getErrorMessage(e) || 'Unknown error' }
   }
 }
 
@@ -216,9 +221,7 @@ function discoverOsUsers(): OsUser[] {
  * Returns discovered OS users cross-referenced with existing tenants.
  * Users already linked to a tenant have linked_tenant_id set.
  */
-export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
 
   const users = discoverOsUsers()
 
@@ -241,7 +244,7 @@ export async function GET(request: NextRequest) {
   } catch {}
 
   return NextResponse.json({ users, platform: os.platform() })
-}
+})
 
 /**
  * POST /api/super/os-users - Create a new OS-level user and register as tenant (admin only)
@@ -251,15 +254,13 @@ export async function GET(request: NextRequest) {
  *
  * Body: { username, display_name, password?, gateway_mode?: boolean, gateway_port?, owner_gateway? }
  */
-export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
 
   const currentUser = getUserFromRequest(request)
   const actor = currentUser?.username || 'system'
 
-  let body: any
-  try { body = await request.json() } catch {
+  let body: Record<string, unknown>
+  try { body = await request.json() as Record<string, unknown> } catch {
     return NextResponse.json({ error: 'Request body required' }, { status: 400 })
   }
 
@@ -288,7 +289,7 @@ export async function POST(request: NextRequest) {
 
   // Check if already registered as tenant
   const db = getDatabase()
-  const existingTenant = db.prepare('SELECT id FROM tenants WHERE linux_user = ? OR slug = ?').get(username, username) as any
+  const existingTenant = db.prepare('SELECT id FROM tenants WHERE linux_user = ? OR slug = ?').get(username, username) as { id?: number } | undefined
   if (existingTenant) {
     return NextResponse.json({ error: 'This user is already registered as an organization' }, { status: 409 })
   }
@@ -304,13 +305,13 @@ export async function POST(request: NextRequest) {
         display_name: displayName,
         linux_user: username,
         gateway_port: body.gateway_port ? Number(body.gateway_port) : undefined,
-        owner_gateway: body.owner_gateway || undefined,
+        owner_gateway: body.owner_gateway ? String(body.owner_gateway) : undefined,
         dry_run: body.dry_run !== false,
         config: { install_openclaw: installOpenclaw, install_claude: installClaude, install_codex: installCodex },
       }, actor)
       return NextResponse.json(result, { status: 201 })
-    } catch (e: any) {
-      return NextResponse.json({ error: e?.message || 'Failed to create tenant bootstrap job' }, { status: 400 })
+    } catch (e: unknown) {
+      return NextResponse.json({ error: getErrorMessage(e) || 'Failed to create tenant bootstrap job' }, { status: 400 })
     }
   }
 
@@ -327,16 +328,16 @@ export async function POST(request: NextRequest) {
         }
         try {
           execFileSync('/usr/sbin/sysadminctl', args, { timeout: 15000, stdio: 'pipe' })
-        } catch (e: any) {
+        } catch (e: unknown) {
           // sysadminctl may need sudo — try with sudo
           try {
             execFileSync('/usr/bin/sudo', ['-n', '/usr/sbin/sysadminctl', ...args], { timeout: 15000, stdio: 'pipe' })
-          } catch (sudoErr: any) {
-            const msg = sudoErr?.stderr?.toString?.() || sudoErr?.message || 'Failed to create OS user'
-            logger.error({ err: sudoErr }, 'Failed to create macOS user')
+          } catch (sudoErr: unknown) {
+            const rawMsg = (sudoErr as ExecError)?.stderr?.toString?.() || (sudoErr as ExecError)?.message || ''
+            logger.error({ err: sudoErr, detail: rawMsg }, 'Failed to create macOS user')
             return NextResponse.json({
-              error: `Failed to create OS user. This requires admin privileges. ${msg}`,
-              hint: 'Run Mission Control with sudo or grant the current user admin rights.',
+              error: 'Failed to create OS user. This requires admin privileges.',
+              hint: 'Run Ultron Mission Control with sudo or grant the current user admin rights.',
             }, { status: 500 })
           }
         }
@@ -345,11 +346,11 @@ export async function POST(request: NextRequest) {
         const args = ['-m', '-s', '/bin/bash', '-c', displayName, username]
         try {
           execFileSync('/usr/bin/sudo', ['-n', '/usr/sbin/useradd', ...args], { timeout: 15000, stdio: 'pipe' })
-        } catch (e: any) {
-          const msg = e?.stderr?.toString?.() || e?.message || 'Failed to create OS user'
-          logger.error({ err: e }, 'Failed to create Linux user')
+        } catch (e: unknown) {
+          const rawMsg = (e as ExecError)?.stderr?.toString?.() || getErrorMessage(e) || ''
+          logger.error({ err: e, detail: rawMsg }, 'Failed to create Linux user')
           return NextResponse.json({
-            error: `Failed to create OS user: ${msg}`,
+            error: 'Failed to create OS user. Check server logs for details.',
             hint: 'Ensure the MC process user has passwordless sudo for useradd.',
           }, { status: 500 })
         }
@@ -392,7 +393,7 @@ export async function POST(request: NextRequest) {
       detail: { username, display_name: displayName, os_user_existed: alreadyExists, platform },
     })
 
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId)
+    const tenant = db.prepare('SELECT id, slug, display_name, linux_user, plan_tier, status, openclaw_home, workspace_root, gateway_port, dashboard_port, config, created_by, created_at, updated_at FROM tenants WHERE id = ?').get(tenantId)
 
     // Install requested tools (non-fatal)
     const installResults: Record<string, { success: boolean; error?: string }> = {}
@@ -420,11 +421,11 @@ export async function POST(request: NextRequest) {
       install_results: Object.keys(installResults).length > 0 ? installResults : undefined,
       message: installSummary ? `${baseMsg} ${installSummary}.` : baseMsg,
     }, { status: 201 })
-  } catch (e: any) {
-    if (String(e?.message || '').includes('UNIQUE')) {
+  } catch (e: unknown) {
+    if (String(getErrorMessage(e) || '').includes('UNIQUE')) {
       return NextResponse.json({ error: 'Organization slug or user already exists' }, { status: 409 })
     }
     logger.error({ err: e }, 'POST /api/super/os-users error')
-    return NextResponse.json({ error: e?.message || 'Failed to create organization' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to create organization. Check server logs for details.' }, { status: 500 })
   }
-}
+})

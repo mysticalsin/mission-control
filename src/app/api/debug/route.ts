@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { apiGuard } from '@/lib/api-guard'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 
@@ -26,10 +26,7 @@ async function gatewayFetch(
   }
 }
 
-export async function GET(request: Request) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const GET = apiGuard({ role: 'admin', rateLimit: 'read' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action') || 'status'
 
@@ -88,12 +85,9 @@ export async function GET(request: Request) {
     logger.error({ err }, 'debug: unexpected error')
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: Request) {
-  const auth = requireRole(request, 'admin')
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
+export const POST = apiGuard({ role: 'admin', rateLimit: 'mutation' }, async (request, _auth) => {
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action')
 
@@ -101,7 +95,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'POST only supports action=call' }, { status: 400 })
   }
 
-  let body: { method?: string; path?: string; body?: any }
+  let body: { method?: string; path?: string; body?: unknown }
   try {
     body = await request.json()
   } catch {
@@ -125,7 +119,7 @@ export async function POST(request: Request) {
       timeoutMs: 5000,
     })
 
-    let responseBody: any
+    let responseBody: unknown
     const contentType = res.headers.get('content-type') || ''
     if (contentType.includes('application/json')) {
       responseBody = await res.json()
@@ -143,4 +137,4 @@ export async function POST(request: Request) {
     logger.warn({ err, path }, 'debug: gateway call failed')
     return NextResponse.json({ error: 'Gateway unreachable', path }, { status: 502 })
   }
-}
+})
